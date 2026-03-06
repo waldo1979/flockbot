@@ -1,6 +1,7 @@
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 import config
@@ -26,10 +27,18 @@ class FlockBot(commands.Bot):
 
         extensions = [
             "commands.admin",
+            "commands.stats",
+            "commands.feedback",
+            "commands.queue",
+            "events.on_ready",
+            "events.lfg_handler",
+            "events.voice_tracker",
         ]
         for ext in extensions:
             await self.load_extension(ext)
             log.info("Loaded extension %s", ext)
+
+        self.tree.on_error = self._on_app_command_error
 
     async def on_ready(self) -> None:
         if not self._synced:
@@ -43,6 +52,22 @@ class FlockBot(commands.Bot):
                 log.info("Synced commands globally")
             self._synced = True
         log.info("Flockbot ready as %s", self.user)
+
+    async def _on_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            msg = "You don't have permission to use this command."
+        elif isinstance(error, app_commands.CommandOnCooldown):
+            msg = f"Command on cooldown. Try again in {error.retry_after:.0f}s."
+        else:
+            log.exception("Unhandled app command error", exc_info=error)
+            msg = "Something went wrong. Please try again later."
+
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
 
     async def close(self) -> None:
         if self.db:
