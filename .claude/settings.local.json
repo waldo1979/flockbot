@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:documentation.pubg.com)",
+      "WebFetch(domain:camdan-me.github.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:publicapi.dev)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:discordpy.readthedocs.io)",
+      "WebFetch(domain:fallendeity.github.io)"
+    ]
+  }
+}

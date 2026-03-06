@@ -1,0 +1,22 @@
+[project]
+name = "flockbot"
+version = "0.1.0"
+description = "Discord bot for PUBG squad/duo formation using skill and social matching"
+requires-python = ">=3.11"
+dependencies = [
+    "discord.py>=2.4",
+    "aiosqlite>=0.20",
+    "aiohttp>=3.9",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "aioresponses>=0.7",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

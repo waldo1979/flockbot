@@ -1,0 +1,10 @@
+services:
+  flockbot:
+    build: .
+    env_file: .env
+    volumes:
+      - flockbot-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  flockbot-data:
