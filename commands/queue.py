@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -7,7 +8,6 @@ from discord.ext import commands
 from database import player_repo
 from events.lfg_handler import LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL
 from utils.cooldown import cooldown
-from utils.embeds import queue_embed
 
 log = logging.getLogger(__name__)
 
@@ -24,25 +24,29 @@ class Queue(commands.Cog):
             await interaction.response.send_message("Must be used in a server.", ephemeral=True)
             return
 
-        embeds = []
-        for channel_name, mode in [(LFG_SQUAD_CHANNEL, "squad"), (LFG_DUO_CHANNEL, "duo")]:
-            # Find the voice channel
+        user_id = interaction.user.id
+        now = datetime.now(timezone.utc)
+        lines = []
+
+        for channel_name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
             vc = discord.utils.get(guild.voice_channels, name=channel_name)
             if not vc:
                 continue
 
-            pool = self.bot.lfg_pools.get(vc.id, set())
-            players = []
-            for uid in pool:
-                player = await player_repo.get_player(self.bot.db, str(uid))
-                if player:
-                    tier = player["squad_fpp_tier"] if mode == "squad" else player["duo_fpp_tier"]
-                    players.append({"pubg_name": player["pubg_name"], "tier": tier})
+            pool = self.bot.lfg_pools.get(vc.id, {})
+            count = len(pool)
+            label = "Squad" if "Squad" in channel_name else "Duo"
 
-            embeds.append(queue_embed(mode, players))
+            if user_id in pool:
+                wait = now - pool[user_id]
+                minutes = int(wait.total_seconds()) // 60
+                seconds = int(wait.total_seconds()) % 60
+                lines.append(f"**LFG {label}** — {count} waiting (you, {minutes}m {seconds}s)")
+            else:
+                lines.append(f"**LFG {label}** — {count} waiting")
 
-        if embeds:
-            await interaction.response.send_message(embeds=embeds)
+        if lines:
+            await interaction.response.send_message("\n".join(lines), ephemeral=True)
         else:
             await interaction.response.send_message("No LFG channels found.", ephemeral=True)
 
@@ -61,9 +65,9 @@ class Queue(commands.Cog):
             vc = discord.utils.get(guild.voice_channels, name=channel_name)
             if not vc:
                 continue
-            pool = self.bot.lfg_pools.get(vc.id, set())
+            pool = self.bot.lfg_pools.get(vc.id, {})
             if player.id in pool:
-                pool.discard(player.id)
+                pool.pop(player.id, None)
                 # Also disconnect from voice
                 try:
                     await player.move_to(None)

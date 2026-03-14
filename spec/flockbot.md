@@ -281,7 +281,22 @@ total_score(G)  = 0.6 * skill_score(G) + 0.4 * social_score(G)
 
 Queue state is **in-memory only** — derived from who is currently in the LFG voice channels. There is no persistent queue table.
 
+Pool state is stored on the bot instance (`bot.lfg_pools`) as `dict[int, dict[int, datetime]]` — mapping channel ID → {discord user ID → join time}. This ensures a single source of truth shared across all cogs (discord.py's `load_extension` creates separate module instances from regular imports, so module-level state would be split).
+
 On startup (`on_ready`), the bot scans both LFG voice channels and rebuilds the in-memory pools from any registered players already present. This ensures queue state survives container restarts and upgrades without requiring players to leave and rejoin.
+
+### 5.5 Queue Status Display
+
+The `/queue` command shows an ephemeral summary of both LFG lobbies:
+
+```
+LFG Squad — 3 waiting
+LFG Duo — 1 waiting (you, 5m 20s)
+```
+
+- Each lobby shows the player count.
+- If the invoking player is in a lobby, their personal wait time is appended.
+- The response is **ephemeral** to avoid channel spam.
 
 ---
 
@@ -310,7 +325,7 @@ On startup (`on_ready`), the bot scans both LFG voice channels and rebuilds the 
 
 | Command | Description | Response | Cooldown |
 |---|---|---|---|
-| `/queue status` | Show who is waiting in each LFG lobby with tiers | Public embed | 10s |
+| `/queue` | Show player counts per LFG lobby, personal queue status and wait time | Ephemeral | 10s |
 | `/queue kick <@player>` | (Admin) Remove a player from LFG lobby | Ephemeral: confirmation | — |
 
 ### 6.4 Admin

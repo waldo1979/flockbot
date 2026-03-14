@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 import discord
 from discord import app_commands
@@ -21,8 +22,8 @@ class FlockBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.db: None = None
         self._synced = False
-        # Shared LFG pool state: channel_id -> set of discord user ids
-        self.lfg_pools: dict[int, set[int]] = {}
+        # Shared LFG pool state: channel_id -> {discord_user_id -> join_time}
+        self.lfg_pools: dict[int, dict[int, datetime]] = {}
 
     async def setup_hook(self) -> None:
         self.db = await init_db(config.DATABASE_PATH)

@@ -29,19 +29,20 @@ class LFGHandler(commands.Cog):
     async def on_ready(self) -> None:
         """Rebuild LFG pools from current voice channel members on startup."""
         await self.bot.wait_until_ready()
+        now = datetime.now(timezone.utc)
         for guild in self.bot.guilds:
             for channel_name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
                 vc = discord.utils.get(guild.voice_channels, name=channel_name)
                 if not vc:
                     log.debug("Channel %s not found in %s", channel_name, guild.name)
                     continue
-                pool = self.bot.lfg_pools.setdefault(vc.id, set())
+                pool = self.bot.lfg_pools.setdefault(vc.id, {})
                 # vc.voice_states is a dict of {user_id: VoiceState} available
                 # even without the members privileged intent.
                 for member_id in vc.voice_states:
                     player = await player_repo.get_player(self.bot.db, str(member_id))
                     if player:
-                        pool.add(member_id)
+                        pool[member_id] = now
                         log.info("Restored %s to %s pool", player["pubg_name"], channel_name)
                 if pool:
                     log.info("Restored %d total players to %s pool", len(pool), channel_name)
@@ -70,7 +71,7 @@ class LFGHandler(commands.Cog):
         # --- Player joined an LFG channel ---
         if after.channel and after.channel.name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
             channel = after.channel
-            pool = self.bot.lfg_pools.setdefault(channel.id, set())
+            pool = self.bot.lfg_pools.setdefault(channel.id, {})
 
             # Must be registered
             player = await player_repo.get_player(self.bot.db, str(member.id))
@@ -87,7 +88,7 @@ class LFGHandler(commands.Cog):
                     pass
                 return
 
-            pool.add(member.id)
+            pool[member.id] = datetime.now(timezone.utc)
             log.info("%s joined %s pool (%d waiting)", player["pubg_name"], channel.name, len(pool))
 
             # Notify buddies
@@ -100,7 +101,7 @@ class LFGHandler(commands.Cog):
         if before.channel and before.channel.name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
             pool = self.bot.lfg_pools.get(before.channel.id)
             if pool:
-                pool.discard(member.id)
+                pool.pop(member.id, None)
 
         # --- Temp channel became empty → delete it ---
         if before.channel and before.channel != after.channel:
@@ -122,7 +123,7 @@ class LFGHandler(commands.Cog):
             bid_int = int(bid)
 
             # Already in the pool?
-            pool = self.bot.lfg_pools.get(channel.id, set())
+            pool = self.bot.lfg_pools.get(channel.id, {})
             if bid_int in pool:
                 continue
 
@@ -162,7 +163,7 @@ class LFGHandler(commands.Cog):
     async def _try_form(self, channel: discord.VoiceChannel) -> None:
         is_squad = channel.name == LFG_SQUAD_CHANNEL
         group_size = 4 if is_squad else 2
-        pool = self.bot.lfg_pools.get(channel.id, set())
+        pool = self.bot.lfg_pools.get(channel.id, {})
 
         if len(pool) < group_size:
             return
@@ -242,11 +243,11 @@ class LFGHandler(commands.Cog):
             return
 
         # Move players and remove from pool
-        pool = self.bot.lfg_pools.get(lfg_channel.id, set())
+        pool = self.bot.lfg_pools.get(lfg_channel.id, {})
         group_dicts = []
         for p in group:
             uid = int(p.discord_id)
-            pool.discard(uid)
+            pool.pop(uid, None)
             member = lfg_channel.guild.get_member(uid)
             if member:
                 try:
