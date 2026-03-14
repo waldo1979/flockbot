@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from database import player_repo
-from events.lfg_handler import LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL, _pools
+from events import lfg_handler
 from utils.cooldown import cooldown
 from utils.embeds import queue_embed
 
@@ -25,14 +25,13 @@ class Queue(commands.Cog):
             return
 
         embeds = []
-        for channel_name, mode in [(LFG_SQUAD_CHANNEL, "squad"), (LFG_DUO_CHANNEL, "duo")]:
+        for channel_name, mode in [(lfg_handler.LFG_SQUAD_CHANNEL, "squad"), (lfg_handler.LFG_DUO_CHANNEL, "duo")]:
             # Find the voice channel
             vc = discord.utils.get(guild.voice_channels, name=channel_name)
             if not vc:
                 continue
 
-            pool = _pools.get(vc.id, set())
-            log.info("Queue check: %s (vc.id=%d) pool=%s, all_pools=%s (pools id=%d)", channel_name, vc.id, pool, dict(_pools), id(_pools))
+            pool = lfg_handler._pools.get(vc.id, set())
             players = []
             for uid in pool:
                 player = await player_repo.get_player(self.bot.db, str(uid))
@@ -58,11 +57,11 @@ class Queue(commands.Cog):
             return
 
         removed = False
-        for channel_name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
+        for channel_name in (lfg_handler.LFG_SQUAD_CHANNEL, lfg_handler.LFG_DUO_CHANNEL):
             vc = discord.utils.get(guild.voice_channels, name=channel_name)
             if not vc:
                 continue
-            pool = _pools.get(vc.id, set())
+            pool = lfg_handler._pools.get(vc.id, set())
             if player.id in pool:
                 pool.discard(player.id)
                 # Also disconnect from voice
