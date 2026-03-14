@@ -279,7 +279,9 @@ total_score(G)  = 0.6 * skill_score(G) + 0.4 * social_score(G)
 
 ### 5.4 Queue State
 
-Queue state is **in-memory only** — derived from who is currently in the LFG voice channels. There is no persistent queue table. If the bot restarts, players simply rejoin the voice lobby.
+Queue state is **in-memory only** — derived from who is currently in the LFG voice channels. There is no persistent queue table.
+
+On startup (`on_ready`), the bot scans both LFG voice channels and rebuilds the in-memory pools from any registered players already present. This ensures queue state survives container restarts and upgrades without requiring players to leave and rejoin.
 
 ---
 
