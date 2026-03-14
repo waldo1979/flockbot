@@ -7,10 +7,10 @@ One-time setup for deploying Flockbot to a Raspberry Pi 5 on your local network.
 ```
 You push to main
   → GitHub Actions runs tests, builds an ARM64 image, pushes to GHCR
-  → Watchtower (on the Pi) detects the new image, pulls it, restarts the bot
+  → Cron job (on the Pi) detects the new image, pulls it, restarts the bot
 ```
 
-No inbound network access to the Pi is required. Watchtower polls outbound to GHCR.
+No inbound network access to the Pi is required. The cron job polls outbound to GHCR every 5 minutes.
 
 ---
 
@@ -61,15 +61,16 @@ If your repo is **private**:
 echo "YOUR_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
 ```
 
-This saves credentials to `~/.docker/config.json`, which Watchtower also reads.
+This saves credentials to `~/.docker/config.json`.
 
 ## 3. Set Up the Bot
 
 ```bash
-# Create the project directory
-mkdir -p ~/flockbot
+# Clone the repo
+git clone https://github.com/waldo1979/flockbot.git ~/flockbot-repo
 
-# Create the .env file with your secrets
+# Create the deployment directory and .env
+mkdir -p ~/flockbot
 nano ~/flockbot/.env
 ```
 
@@ -80,36 +81,31 @@ DISCORD_TOKEN=your-discord-token-here
 PUBG_API_KEY=your-pubg-api-key-here
 ```
 
-Lock down permissions:
+Lock down permissions and symlink the compose file:
 
 ```bash
 chmod 600 ~/flockbot/.env
+ln -sf ~/flockbot-repo/docker-compose.prod.yml ~/flockbot/docker-compose.yml
 ```
 
-### Copy the compose file from your Windows machine
-
-Using `pscp` (comes with PuTTY) from Command Prompt:
-
-```cmd
-pscp docker-compose.prod.yml pi-user@pi-ip:~/flockbot/docker-compose.yml
-```
-
-Then SSH in and edit the image name in `~/flockbot/docker-compose.yml` — replace `OWNER` with your GitHub username (lowercase):
+## 4. Install the Auto-Update Cron Job
 
 ```bash
-nano ~/flockbot/docker-compose.yml
-# Change: ghcr.io/OWNER/flockbot:latest
-# To:     ghcr.io/yourusername/flockbot:latest
+# Make the update script executable
+chmod +x ~/flockbot-repo/scripts/update.sh
+
+# Install cron job — checks for new images every 5 minutes
+(crontab -l 2>/dev/null; echo "*/5 * * * * $HOME/flockbot-repo/scripts/update.sh") | crontab -
 ```
 
-## 4. Start Everything
+## 5. Start the Bot
 
 ```bash
 cd ~/flockbot
 docker compose up -d
 ```
 
-This starts both the bot and Watchtower. From now on, every push to `main` will automatically deploy within ~5 minutes.
+From now on, every push to `main` will automatically deploy within ~5 minutes.
 
 ## 5. Personal SSH Access (with 1Password)
 
@@ -128,15 +124,24 @@ Alternatively, use PuTTYgen to create a key pair, save the private key in 1Passw
 
 ```bash
 cd ~/flockbot
-docker compose logs -f flockbot             # Follow bot logs
-docker compose logs -f watchtower            # Follow Watchtower logs
+docker compose logs -f flockbot              # Follow bot logs
 docker compose restart flockbot              # Restart the bot
-docker compose down                          # Stop everything
+docker compose down                          # Stop the bot
 docker compose pull && docker compose up -d  # Force an immediate update
+cat ~/flockbot/update.log                    # View auto-update history
+crontab -l                                   # Verify cron job is installed
+```
+
+To sync compose file changes from the repo:
+
+```bash
+cd ~/flockbot-repo && git pull
+# The symlink picks up changes automatically; restart if needed:
+cd ~/flockbot && docker compose up -d
 ```
 
 ## Network Notes
 
 - The Pi only needs **outbound** internet access (Discord API, PUBG API, GHCR)
 - No inbound ports need to be opened
-- No SSH from the internet required — Watchtower pulls updates over HTTPS
+- No SSH from the internet required — the cron job pulls updates over HTTPS

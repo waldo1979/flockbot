@@ -4,6 +4,8 @@
 # Required: create ~/flockbot/.env with:
 #   DISCORD_TOKEN=...
 #   PUBG_API_KEY=...
+#
+# Auto-updates: install the cron job from scripts/update-cron.sh
 
 services:
   flockbot:
@@ -19,18 +21,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  watchtower:
-    image: containrrr/watchtower:1.7.1
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_CLEANUP=true          # Remove old images after update
-      - WATCHTOWER_POLL_INTERVAL=300     # Check every 5 minutes
-      - WATCHTOWER_SCOPE=flockbot
-    restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.scope=flockbot"
 
 volumes:
   flockbot-data:
