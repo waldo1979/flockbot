@@ -7,6 +7,7 @@ from discord.ext import commands
 
 import config
 from database.connection import init_db, close_db
+from services.welcome import post_welcome_messages
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,6 +55,8 @@ class FlockBot(commands.Bot):
                 await self.tree.sync()
                 log.info("Synced commands globally")
             self._synced = True
+
+        await post_welcome_messages(self)
         log.info("Flockbot ready as %s", self.user)
 
     async def _on_app_command_error(

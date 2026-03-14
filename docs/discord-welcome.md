@@ -13,7 +13,7 @@ Flockbot matches you into PUBG squads and duos based on skill and social compati
 ## Getting Started
 
 **Step 1: Register your PUBG name**
-Type `/register YourPUBGName` in any text channel. This links your Discord account to your PUBG stats. Your server nickname will be set to your PUBG name.
+Type `/register YourPUBGName` in any text channel. This links your Discord account to your PUBG stats. Your server nickname will be set to your PUBG name. Each PUBG account can only be linked to one Discord user — contact an admin if you need to transfer an account.
 
 **Step 2: Check your stats**
 Type `/stats` to see your ADR (Average Damage per Round) for squad and duo FPP. Your ADR determines your skill tier.

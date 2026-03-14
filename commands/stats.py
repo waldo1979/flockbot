@@ -54,6 +54,18 @@ class Stats(commands.Cog):
 
         discord_id = str(interaction.user.id)
 
+        # Check if this PUBG account is already claimed by another Discord user
+        existing = await player_repo.get_player_by_pubg_id(
+            self.bot.db, player_info.account_id
+        )
+        if existing and existing["discord_id"] != discord_id:
+            await interaction.followup.send(
+                f"**{player_info.name}** is already registered to another player. "
+                "Contact an admin if this is your account.",
+                ephemeral=True,
+            )
+            return
+
         # Save to database
         await player_repo.upsert_player(
             self.bot.db, discord_id, player_info.account_id, player_info.name

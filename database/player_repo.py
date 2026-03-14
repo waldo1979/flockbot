@@ -27,6 +27,19 @@ async def get_player(db: aiosqlite.Connection, discord_id: str) -> dict | None:
     return dict(zip(cols, row))
 
 
+async def get_player_by_pubg_id(
+    db: aiosqlite.Connection, pubg_id: str
+) -> dict | None:
+    cursor = await db.execute(
+        "SELECT * FROM players WHERE pubg_id = ?", (pubg_id,)
+    )
+    row = await cursor.fetchone()
+    if not row:
+        return None
+    cols = [d[0] for d in cursor.description]
+    return dict(zip(cols, row))
+
+
 async def get_player_by_pubg_name(
     db: aiosqlite.Connection, pubg_name: str
 ) -> dict | None:

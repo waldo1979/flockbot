@@ -49,10 +49,11 @@ PC (Steam) only. PUBG API shard: `steam`.
 
 1. Player invokes `/register <pubg_name>` in any text channel.
 2. Bot calls PUBG API `GET /shards/steam/players?filter[playerNames]=<pubg_name>`.
-3. If found: bot creates a `players` row linking `discord_id` to `pubg_id` and `pubg_name`.
-4. Bot sets the player's **Discord server nickname** to `pubg_name` via `member.edit(nick=pubg_name)`.
-5. Bot triggers an initial stats refresh (Phase 2.2).
-6. Bot responds ephemerally with confirmation and initial stats.
+3. If found: bot checks whether the returned `pubg_id` is already linked to a **different** Discord user. If so, registration is rejected with: *"**{pubg_name}** is already registered to another player. Contact an admin if this is your account."* (Re-registering the same account from the same Discord user is allowed, e.g., after a PUBG name change.)
+4. Bot creates or updates a `players` row linking `discord_id` to `pubg_id` and `pubg_name`.
+5. Bot sets the player's **Discord server nickname** to `pubg_name` via `member.edit(nick=pubg_name)`.
+6. Bot triggers an initial stats refresh (Phase 2.2).
+7. Bot responds ephemerally with confirmation and initial stats.
 
 ### 2.2 Name Enforcement
 
@@ -382,6 +383,7 @@ Stored in `players.queue_preference` (persisted in SQLite).
 |---|---|---|---|
 | `/admin sync` | Sync slash commands to Discord | Ephemeral: confirmation | — |
 | `/admin cleanup` | Manually run stale data cleanup | Ephemeral: summary of deleted rows | — |
+| `/admin transfer <pubg_name> <@to>` | Transfer a PUBG account linkage to a different Discord user (dispute resolution) | Ephemeral: confirmation | — |
 
 ### 6.5 Command Throttling
 
@@ -508,6 +510,7 @@ Passive tracking of who plays together. One row per player-pair per day.
 
 | Task | Frequency | Description |
 |---|---|---|
+| Welcome messages | On startup | Purge bot messages in #rules, re-post from `docs/discord-welcome.md` (3 messages) |
 | Stats refresh | Every 2 hours | Fetch recent matches for all registered players, store FPP matches, recalculate per-mode ADR |
 | Season check | Daily | Fetch current season ID from PUBG API, detect season transitions |
 | Feedback cleanup | Daily | Delete feedback rows older than 84 days (12 weeks) |
