@@ -46,7 +46,7 @@ class LFGHandler(commands.Cog):
                         pool.add(member_id)
                         log.info("Restored %s to %s pool", player["pubg_name"], channel_name)
                 if pool:
-                    log.info("Restored %d total players to %s pool", len(pool), channel_name)
+                    log.info("Restored %d total players to %s pool (pools id=%d)", len(pool), channel_name, id(_pools))
 
     def _find_category(self, guild: discord.Guild) -> discord.CategoryChannel | None:
         for cat in guild.categories:

@@ -32,7 +32,7 @@ class Queue(commands.Cog):
                 continue
 
             pool = _pools.get(vc.id, set())
-            log.info("Queue check: %s (vc.id=%d) pool=%s, all_pools=%s", channel_name, vc.id, pool, dict(_pools))
+            log.info("Queue check: %s (vc.id=%d) pool=%s, all_pools=%s (pools id=%d)", channel_name, vc.id, pool, dict(_pools), id(_pools))
             players = []
             for uid in pool:
                 player = await player_repo.get_player(self.bot.db, str(uid))
