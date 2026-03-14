@@ -21,6 +21,8 @@ class FlockBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.db: None = None
         self._synced = False
+        # Shared LFG pool state: channel_id -> set of discord user ids
+        self.lfg_pools: dict[int, set[int]] = {}
 
     async def setup_hook(self) -> None:
         self.db = await init_db(config.DATABASE_PATH)
