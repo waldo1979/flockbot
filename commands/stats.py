@@ -1,5 +1,4 @@
 import logging
-import time
 
 import discord
 from discord import app_commands
@@ -12,13 +11,10 @@ from services.stats_service import (
     refresh_player_stats,
     MIN_MATCHES_FOR_ADR,
 )
+from utils.cooldown import cooldown
 from utils.embeds import stats_embed, leaderboard_embed
 
 log = logging.getLogger(__name__)
-
-# Cooldown tracker: discord_id -> last refresh timestamp
-_refresh_cooldowns: dict[str, float] = {}
-REFRESH_COOLDOWN_SECS = 300
 
 
 class Stats(commands.Cog):
@@ -40,6 +36,7 @@ class Stats(commands.Cog):
         name="register", description="Link your Discord account to your PUBG name"
     )
     @app_commands.describe(pubg_name="Your PUBG in-game name (PC/Steam)")
+    @cooldown(60)
     async def register(
         self, interaction: discord.Interaction, pubg_name: str
     ) -> None:
@@ -84,6 +81,7 @@ class Stats(commands.Cog):
         )
 
     @app_commands.command(name="stats", description="Show your PUBG stats")
+    @cooldown(30)
     async def stats(self, interaction: discord.Interaction) -> None:
         discord_id = str(interaction.user.id)
         player = await player_repo.get_player(self.bot.db, discord_id)
@@ -102,6 +100,7 @@ class Stats(commands.Cog):
         name="lookup", description="Look up another player's stats"
     )
     @app_commands.describe(player="The player to look up")
+    @cooldown(15)
     async def lookup(
         self, interaction: discord.Interaction, player: discord.Member
     ) -> None:
@@ -119,6 +118,7 @@ class Stats(commands.Cog):
     @app_commands.command(
         name="refresh", description="Force-refresh your stats from the PUBG API"
     )
+    @cooldown(300)
     async def refresh(self, interaction: discord.Interaction) -> None:
         discord_id = str(interaction.user.id)
         player = await player_repo.get_player(self.bot.db, discord_id)
@@ -129,17 +129,7 @@ class Stats(commands.Cog):
             )
             return
 
-        # Cooldown check
-        last = _refresh_cooldowns.get(discord_id, 0)
-        remaining = REFRESH_COOLDOWN_SECS - (time.time() - last)
-        if remaining > 0:
-            await interaction.response.send_message(
-                f"Cooldown: try again in {int(remaining)}s.", ephemeral=True
-            )
-            return
-
         await interaction.response.defer(ephemeral=True)
-        _refresh_cooldowns[discord_id] = time.time()
 
         season = await self._ensure_season()
         if season:
@@ -152,6 +142,7 @@ class Stats(commands.Cog):
         await interaction.followup.send("Stats refreshed!", embed=embed, ephemeral=True)
 
     @app_commands.command(name="leaderboard", description="Server ADR leaderboard")
+    @cooldown(60)
     @app_commands.describe(mode="Game mode")
     @app_commands.choices(
         mode=[

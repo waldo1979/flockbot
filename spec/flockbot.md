@@ -287,36 +287,50 @@ Queue state is **in-memory only** — derived from who is currently in the LFG v
 
 ### 6.1 Registration and Stats
 
-| Command | Description | Response |
-|---|---|---|
-| `/register <pubg_name>` | Link Discord account to PUBG name, set server nickname | Ephemeral: confirmation + initial stats |
-| `/stats` | Show your own stats (squad-fpp ADR, duo-fpp ADR, tiers, match counts, season) | Public embed |
-| `/stats lookup <@player>` | Show another registered player's stats | Public embed |
-| `/stats refresh` | Force-refresh stats from PUBG API (5-min cooldown) | Ephemeral: updated stats |
-| `/leaderboard` | Server ADR leaderboard (top 10, selectable by mode) | Public embed |
+| Command | Description | Response | Cooldown |
+|---|---|---|---|
+| `/register <pubg_name>` | Link Discord account to PUBG name, set server nickname | Ephemeral: confirmation + initial stats | 60s |
+| `/stats` | Show your own stats (squad-fpp ADR, duo-fpp ADR, tiers, match counts, season) | Public embed | 30s |
+| `/stats lookup <@player>` | Show another registered player's stats | Public embed | 15s |
+| `/stats refresh` | Force-refresh stats from PUBG API | Ephemeral: updated stats | 300s |
+| `/leaderboard` | Server ADR leaderboard (top 10, selectable by mode) | Public embed | 60s |
 
 ### 6.2 Social Feedback
 
-| Command | Description | Response |
-|---|---|---|
-| `/feedback <@player>` | Rate a player (shows 4 buttons) | Ephemeral: FeedbackView |
-| `/unblock <@player>` | Remove a "Never Again" block you placed | Ephemeral: confirmation |
-| `/buddies` | List your confirmed buddy pairs | Ephemeral: buddy list |
-| *Context menu*: "Rate Teammate" | Right-click user → Apps → Rate Teammate | Ephemeral: FeedbackView |
+| Command | Description | Response | Cooldown |
+|---|---|---|---|
+| `/feedback <@player>` | Rate a player (shows 4 buttons) | Ephemeral: FeedbackView | 10s |
+| `/unblock <@player>` | Remove a "Never Again" block you placed | Ephemeral: confirmation | 30s |
+| `/buddies` | List your confirmed buddy pairs | Ephemeral: buddy list | 30s |
+| *Context menu*: "Rate Teammate" | Right-click user → Apps → Rate Teammate | Ephemeral: FeedbackView | — |
 
 ### 6.3 Queue
 
-| Command | Description | Response |
-|---|---|---|
-| `/queue status` | Show who is waiting in each LFG lobby with tiers | Public embed |
-| `/queue kick <@player>` | (Admin) Remove a player from LFG lobby | Ephemeral: confirmation |
+| Command | Description | Response | Cooldown |
+|---|---|---|---|
+| `/queue status` | Show who is waiting in each LFG lobby with tiers | Public embed | 10s |
+| `/queue kick <@player>` | (Admin) Remove a player from LFG lobby | Ephemeral: confirmation | — |
 
 ### 6.4 Admin
 
-| Command | Description | Response |
-|---|---|---|
-| `/admin sync` | Sync slash commands to Discord | Ephemeral: confirmation |
-| `/admin cleanup` | Manually run stale data cleanup | Ephemeral: summary of deleted rows |
+| Command | Description | Response | Cooldown |
+|---|---|---|---|
+| `/admin sync` | Sync slash commands to Discord | Ephemeral: confirmation | — |
+| `/admin cleanup` | Manually run stale data cleanup | Ephemeral: summary of deleted rows | — |
+
+### 6.5 Command Throttling
+
+All player-facing commands enforce per-user cooldowns to prevent channel spam and protect backend resources. Cooldowns are tracked in-memory per Discord user ID. If a player invokes a command before their cooldown expires, they receive an ephemeral message with the remaining wait time.
+
+Admin commands (`/admin sync`, `/admin cleanup`, `/queue kick`) are exempt from cooldowns.
+
+Design rationale for a ~200-player server:
+- **High-frequency commands** (`/queue status`, `/feedback`): 10s — players may check these several times per session.
+- **Medium-frequency commands** (`/stats`, `/lookup`, `/buddies`, `/unblock`): 15–30s — data changes infrequently within a session.
+- **Low-frequency commands** (`/register`, `/leaderboard`): 60s — one-time or community-wide data.
+- **API-bound commands** (`/refresh`): 300s — protects the PUBG API rate limit budget.
+
+Implementation: a shared `@cooldown(seconds)` decorator in `utils/cooldown.py` applied to each command handler.
 
 ---
 

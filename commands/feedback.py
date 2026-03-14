@@ -4,6 +4,7 @@ from discord.ext import commands
 
 from database import feedback_repo, player_repo
 from services import feedback_service
+from utils.cooldown import cooldown
 from utils.views import FeedbackView
 
 
@@ -57,6 +58,7 @@ class Feedback(commands.Cog):
 
     @app_commands.command(name="feedback", description="Rate a teammate")
     @app_commands.describe(player="The player to rate")
+    @cooldown(10)
     async def feedback(
         self, interaction: discord.Interaction, player: discord.Member
     ) -> None:
@@ -69,6 +71,7 @@ class Feedback(commands.Cog):
 
     @app_commands.command(name="unblock", description="Remove a Never Again block")
     @app_commands.describe(player="The player to unblock")
+    @cooldown(30)
     async def unblock(
         self, interaction: discord.Interaction, player: discord.Member
     ) -> None:
@@ -85,6 +88,7 @@ class Feedback(commands.Cog):
             )
 
     @app_commands.command(name="buddies", description="List your confirmed best buddies")
+    @cooldown(30)
     async def buddies(self, interaction: discord.Interaction) -> None:
         discord_id = str(interaction.user.id)
         buddy_ids = await feedback_repo.get_confirmed_buddies(self.bot.db, discord_id)

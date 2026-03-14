@@ -4,6 +4,7 @@ from discord.ext import commands
 
 from database import player_repo
 from events.lfg_handler import LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL, _pools
+from utils.cooldown import cooldown
 from utils.embeds import queue_embed
 
 
@@ -12,6 +13,7 @@ class Queue(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="queue", description="Show LFG queue status")
+    @cooldown(10)
     async def queue_status(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         if not guild:
