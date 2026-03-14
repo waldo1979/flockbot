@@ -7,7 +7,7 @@
 
 services:
   flockbot:
-    image: ghcr.io/OWNER/flockbot:latest  # TODO: replace OWNER with your GitHub username
+    image: ghcr.io/waldo1979/flockbot:latest
     env_file: .env
     environment:
       - DATABASE_PATH=data/flockbot.db
@@ -21,10 +21,9 @@ services:
         max-file: "3"
 
   watchtower:
-    image: containrrr/watchtower
+    image: containrrr/watchtower:latest
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ~/.docker/config.json:/config.json:ro  # GHCR credentials (only needed for private repos)
     environment:
       - WATCHTOWER_CLEANUP=true          # Remove old images after update
       - WATCHTOWER_POLL_INTERVAL=300     # Check every 5 minutes
