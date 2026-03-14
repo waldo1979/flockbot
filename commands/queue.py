@@ -1,3 +1,5 @@
+import logging
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -6,6 +8,8 @@ from database import player_repo
 from events.lfg_handler import LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL, _pools
 from utils.cooldown import cooldown
 from utils.embeds import queue_embed
+
+log = logging.getLogger(__name__)
 
 
 class Queue(commands.Cog):
@@ -28,6 +32,7 @@ class Queue(commands.Cog):
                 continue
 
             pool = _pools.get(vc.id, set())
+            log.info("Queue check: %s (vc.id=%d) pool=%s, all_pools=%s", channel_name, vc.id, pool, dict(_pools))
             players = []
             for uid in pool:
                 player = await player_repo.get_player(self.bot.db, str(uid))
