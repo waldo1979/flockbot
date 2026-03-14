@@ -42,6 +42,12 @@ class LFGHandler(commands.Cog):
     ) -> None:
         guild = member.guild
 
+        # Ignore voice state changes that don't involve a channel switch
+        # (e.g., mute, deafen, stream start) — these fire the event but
+        # before.channel == after.channel.
+        if before.channel == after.channel:
+            return
+
         # --- Player joined an LFG channel ---
         if after.channel and after.channel.name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
             channel = after.channel
