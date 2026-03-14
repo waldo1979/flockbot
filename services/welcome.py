@@ -34,6 +34,10 @@ def parse_welcome_messages(text: str) -> list[str]:
 
 async def post_welcome_messages(bot: discord.Client) -> None:
     """Purge old welcome messages and post fresh ones to #rules."""
+    if not WELCOME_PATH.exists():
+        log.error("Welcome file not found: %s", WELCOME_PATH)
+        return
+
     text = WELCOME_PATH.read_text(encoding="utf-8")
     messages = parse_welcome_messages(text)
     if not messages:
@@ -43,22 +47,30 @@ async def post_welcome_messages(bot: discord.Client) -> None:
     for guild in bot.guilds:
         channel = discord.utils.get(guild.text_channels, name=RULES_CHANNEL_NAME)
         if not channel:
-            log.debug("No #%s channel in %s", RULES_CHANNEL_NAME, guild.name)
+            log.warning("No #%s channel in %s", RULES_CHANNEL_NAME, guild.name)
             continue
 
-        # Purge all messages sent by the bot in this channel
-        deleted = 0
-        async for msg in channel.history(limit=200):
-            if msg.author == bot.user:
-                await msg.delete()
-                deleted += 1
-        if deleted:
-            log.info("Deleted %d old welcome messages in #%s", deleted, RULES_CHANNEL_NAME)
+        try:
+            # Purge all messages sent by the bot in this channel
+            deleted = 0
+            async for msg in channel.history(limit=200):
+                if msg.author == bot.user:
+                    await msg.delete()
+                    deleted += 1
+            if deleted:
+                log.info("Deleted %d old welcome messages in #%s", deleted, RULES_CHANNEL_NAME)
 
-        # Post fresh messages
-        for body in messages:
-            await channel.send(body + WELCOME_MARKER)
-        log.info(
-            "Posted %d welcome messages to #%s in %s",
-            len(messages), RULES_CHANNEL_NAME, guild.name,
-        )
+            # Post fresh messages
+            for body in messages:
+                await channel.send(body + WELCOME_MARKER)
+            log.info(
+                "Posted %d welcome messages to #%s in %s",
+                len(messages), RULES_CHANNEL_NAME, guild.name,
+            )
+        except discord.Forbidden:
+            log.error(
+                "Missing permissions to manage messages in #%s (%s)",
+                RULES_CHANNEL_NAME, guild.name,
+            )
+        except Exception:
+            log.exception("Failed to post welcome messages in %s", guild.name)
