@@ -27,6 +27,22 @@ class LFGHandler(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Rebuild LFG pools from current voice channel members on startup."""
+        for guild in self.bot.guilds:
+            for channel_name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
+                vc = discord.utils.get(guild.voice_channels, name=channel_name)
+                if not vc:
+                    continue
+                pool = _pools.setdefault(vc.id, set())
+                for member in vc.members:
+                    player = await player_repo.get_player(self.bot.db, str(member.id))
+                    if player:
+                        pool.add(member.id)
+                if pool:
+                    log.info("Restored %d players to %s pool", len(pool), channel_name)
+
     def _find_category(self, guild: discord.Guild) -> discord.CategoryChannel | None:
         for cat in guild.categories:
             if cat.name.upper() == SQUADS_CATEGORY:
