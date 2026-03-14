@@ -30,18 +30,23 @@ class LFGHandler(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         """Rebuild LFG pools from current voice channel members on startup."""
+        await self.bot.wait_until_ready()
         for guild in self.bot.guilds:
             for channel_name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
                 vc = discord.utils.get(guild.voice_channels, name=channel_name)
                 if not vc:
+                    log.debug("Channel %s not found in %s", channel_name, guild.name)
                     continue
                 pool = _pools.setdefault(vc.id, set())
-                for member in vc.members:
-                    player = await player_repo.get_player(self.bot.db, str(member.id))
+                # vc.voice_states is a dict of {user_id: VoiceState} available
+                # even without the members privileged intent.
+                for member_id in vc.voice_states:
+                    player = await player_repo.get_player(self.bot.db, str(member_id))
                     if player:
-                        pool.add(member.id)
+                        pool.add(member_id)
+                        log.info("Restored %s to %s pool", player["pubg_name"], channel_name)
                 if pool:
-                    log.info("Restored %d players to %s pool", len(pool), channel_name)
+                    log.info("Restored %d total players to %s pool", len(pool), channel_name)
 
     def _find_category(self, guild: discord.Guild) -> discord.CategoryChannel | None:
         for cat in guild.categories:
