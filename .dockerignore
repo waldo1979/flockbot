@@ -12,6 +12,7 @@ data/
 tests/
 spec/
 *.md
+!docs/**
 Dockerfile
 docker-compose*.yml
 .dockerignore
