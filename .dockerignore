@@ -1,8 +1,10 @@
 .env
+.env.*
 .git
 .gitignore
 __pycache__/
 *.pyc
+*.pyo
 *.db
 data/
 .pytest_cache/
@@ -10,4 +12,8 @@ data/
 tests/
 spec/
 *.md
-!README.md
+Dockerfile
+docker-compose*.yml
+.dockerignore
+.vscode/
+.idea/

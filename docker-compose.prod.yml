@@ -1,0 +1,37 @@
+# Production compose file for the Raspberry Pi.
+# Place this at ~/flockbot/docker-compose.yml on the Pi.
+#
+# Required: create ~/flockbot/.env with:
+#   DISCORD_TOKEN=...
+#   PUBG_API_KEY=...
+
+services:
+  flockbot:
+    image: ghcr.io/OWNER/flockbot:latest  # TODO: replace OWNER with your GitHub username
+    env_file: .env
+    environment:
+      - DATABASE_PATH=data/flockbot.db
+    volumes:
+      - flockbot-data:/app/data
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ~/.docker/config.json:/config.json:ro  # GHCR credentials (only needed for private repos)
+    environment:
+      - WATCHTOWER_CLEANUP=true          # Remove old images after update
+      - WATCHTOWER_POLL_INTERVAL=300     # Check every 5 minutes
+      - WATCHTOWER_SCOPE=flockbot
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.scope=flockbot"
+
+volumes:
+  flockbot-data:
