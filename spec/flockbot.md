@@ -248,7 +248,7 @@ A channel category **"SQUADS"** (or similar) is used as the parent for bot-creat
 3. If the player has a confirmed buddy who is **online but not in the lobby**, the bot sends a notification: *"@BuddyB, your buddy @BuddyA is looking for a squad! Join LFG Squad to play together."* The bot holds a slot for the buddy for **up to 5 minutes**.
 4. When the pool has enough players (4 for squad, 2 for duo), the matchmaker runs.
 5. The matchmaker forms optimal groups (see §5.3) and for each group:
-   a. Creates a **temporary voice channel** (e.g., "Squad #1") under the SQUADS category.
+   a. Creates a **temporary voice channel** (e.g., "Squad #1") under the SQUADS category with **per-user permission overrides**: `@everyone` is denied Connect, each matched player is granted Connect, and the bot retains Connect/Move Members/Manage Channels. This ensures only matched players can join the channel, and they can **reconnect if they disconnect**.
    b. **Moves** all matched players into the temporary channel.
    c. Posts a match announcement in a text channel showing the group members and their tiers.
 6. When a temporary voice channel becomes **empty**, the bot deletes it.

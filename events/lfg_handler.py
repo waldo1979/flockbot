@@ -192,11 +192,24 @@ class LFGHandler(commands.Cog):
         prefix = "Squad" if is_squad else "Duo"
         name = f"{prefix} #{_group_counter}"
 
+        # Build permission overrides: deny @everyone, allow matched players
+        overwrites = {
+            lfg_channel.guild.default_role: discord.PermissionOverwrite(connect=False),
+            lfg_channel.guild.me: discord.PermissionOverwrite(
+                connect=True, move_members=True, manage_channels=True,
+            ),
+        }
+        for p in group:
+            member = lfg_channel.guild.get_member(int(p.discord_id))
+            if member:
+                overwrites[member] = discord.PermissionOverwrite(connect=True)
+
         # Create temp voice channel
         try:
             temp_channel = await lfg_channel.guild.create_voice_channel(
                 name=name,
                 category=category,
+                overwrites=overwrites,
                 reason="LFG group formed",
             )
         except discord.Forbidden:
