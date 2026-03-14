@@ -25,6 +25,11 @@ Join one of the voice lobbies to find a group:
 
 When enough players are in the lobby, Flockbot forms a group and moves you into a temporary voice channel. When everyone leaves, the channel is cleaned up automatically.
 
+**How matching works over time:**
+The bot starts with tight skill matching. If you're waiting a while, the laxative kicks in — it gradually loosens the skill requirement so you get a game faster. Type `/queue` to see your wait time, how many more players are needed, and when the laxative kicks in. Social compatibility (feedback, buddies) always matters — blocks are never overridden.
+
+**Want faster matches?** Type `/queuepref fast` — the laxative kicks in sooner. Use `/queuepref skill` to go back to tighter matches.
+
 ---
 
 **MESSAGE 2:**
@@ -64,7 +69,8 @@ Feedback is anonymous. You can only rate someone once per 24 hours. Ratings fade
 - `/leaderboard` — server ADR rankings
 - `/buddies` — see your confirmed buddy pairs
 - `/unblock @player` — remove a block you placed
-- `/queue status` — see who's waiting in each lobby
+- `/queue` — your wait time, players needed, laxative countdown
+- `/queuepref skill|fast` — choose tight skill matches or faster groups
 
 ## Rules
 

@@ -2,17 +2,19 @@ import logging
 from datetime import datetime, timezone
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from database import feedback_repo, player_repo
-from services.matchmaker import QueuedPlayer, form_squads, form_duos, NEW_PLAYER_DEFAULT_ADR
+from services.matchmaker import (
+    QueuedPlayer, QueuePreference, form_squads, form_duos, NEW_PLAYER_DEFAULT_ADR,
+)
 from utils.embeds import squad_embed
 
 log = logging.getLogger(__name__)
 
 LFG_SQUAD_CHANNEL = "LFG Squad"
 LFG_DUO_CHANNEL = "LFG Duo"
-SQUADS_CATEGORY = "SQUADS"
+SQUADS_CATEGORY = "PUBG VOICE"
 BUDDY_WAIT_MINUTES = 5
 
 # Counter for temp channel naming
@@ -46,6 +48,29 @@ class LFGHandler(commands.Cog):
                         log.info("Restored %s to %s pool", player["pubg_name"], channel_name)
                 if pool:
                     log.info("Restored %d total players to %s pool", len(pool), channel_name)
+
+        if not self.periodic_match.is_running():
+            self.periodic_match.start()
+
+    async def cog_unload(self) -> None:
+        self.periodic_match.cancel()
+
+    @tasks.loop(seconds=30)
+    async def periodic_match(self) -> None:
+        """Re-evaluate LFG pools periodically so long-waiters benefit from relaxation."""
+        for guild in self.bot.guilds:
+            for channel_name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
+                vc = discord.utils.get(guild.voice_channels, name=channel_name)
+                if not vc:
+                    continue
+                pool = self.bot.lfg_pools.get(vc.id, {})
+                group_size = 4 if channel_name == LFG_SQUAD_CHANNEL else 2
+                if len(pool) >= group_size:
+                    await self._try_form(vc)
+
+    @periodic_match.before_loop
+    async def before_periodic_match(self) -> None:
+        await self.bot.wait_until_ready()
 
     def _find_category(self, guild: discord.Guild) -> discord.CategoryChannel | None:
         for cat in guild.categories:
@@ -170,7 +195,7 @@ class LFGHandler(commands.Cog):
 
         # Build QueuedPlayer list
         queued = []
-        for uid in list(pool):
+        for uid, join_time in list(pool.items()):
             player = await player_repo.get_player(self.bot.db, str(uid))
             if not player:
                 continue
@@ -180,10 +205,18 @@ class LFGHandler(commands.Cog):
             else:
                 adr = player["duo_fpp_adr"] or NEW_PLAYER_DEFAULT_ADR
 
+            pref_str = player.get("queue_preference", "skill") or "skill"
+            try:
+                preference = QueuePreference(pref_str)
+            except ValueError:
+                preference = QueuePreference.SKILL
+
             queued.append(QueuedPlayer(
                 discord_id=str(uid),
                 pubg_name=player["pubg_name"],
                 adr=adr,
+                join_time=join_time,
+                preference=preference,
             ))
 
         if len(queued) < group_size:

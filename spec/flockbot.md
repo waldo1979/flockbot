@@ -239,7 +239,7 @@ The Discord server must have two voice channels (detected by name):
 - **"LFG Squad"** — players join here to queue for squad (4-player) groups.
 - **"LFG Duo"** — players join here to queue for duo (2-player) groups.
 
-A channel category **"SQUADS"** (or similar) is used as the parent for bot-created temporary channels.
+A channel category **"PUBG VOICE"** is used as the parent for bot-created temporary channels.
 
 ### 5.2 LFG Flow
 
@@ -248,7 +248,7 @@ A channel category **"SQUADS"** (or similar) is used as the parent for bot-creat
 3. If the player has a confirmed buddy who is **online but not in the lobby**, the bot sends a notification: *"@BuddyB, your buddy @BuddyA is looking for a squad! Join LFG Squad to play together."* The bot holds a slot for the buddy for **up to 5 minutes**.
 4. When the pool has enough players (4 for squad, 2 for duo), the matchmaker runs.
 5. The matchmaker forms optimal groups (see §5.3) and for each group:
-   a. Creates a **temporary voice channel** (e.g., "Squad #1") under the SQUADS category with **per-user permission overrides**: `@everyone` is denied Connect, each matched player is granted Connect, and the bot retains Connect/Move Members/Manage Channels. This ensures only matched players can join the channel, and they can **reconnect if they disconnect**.
+   a. Creates a **temporary voice channel** (e.g., "Squad #1") under the PUBG VOICE category with **per-user permission overrides**: `@everyone` is denied Connect, each matched player is granted Connect, and the bot retains Connect/Move Members/Manage Channels. This ensures only matched players can join the channel, and they can **reconnect if they disconnect**.
    b. **Moves** all matched players into the temporary channel.
    c. Posts a match announcement in a text channel showing the group members and their tiers.
 6. When a temporary voice channel becomes **empty**, the bot deletes it.
@@ -261,8 +261,16 @@ A channel category **"SQUADS"** (or similar) is used as the parent for bot-creat
 ```
 skill_score(G)  = 1.0 - (max_adr(G) - min_adr(G)) / 400
 social_score(G) = mean(pairwise_compatibility(a, b) for all pairs in G)
-total_score(G)  = 0.6 * skill_score(G) + 0.4 * social_score(G)
+
+r = relaxation_factor(G)   # see §5.6
+effective_skill_weight = 0.6 * (1.0 - r)
+baseline = 0.6 * r
+
+total_score(G)  = effective_skill_weight * skill_score + 0.4 * social_score + baseline
 ```
+
+At r=0 (fresh queue): `0.6*skill + 0.4*social` (unchanged).
+At r=1 (5+ min wait): `0.4*social + 0.6` (skill irrelevant, social still matters).
 
 - ADR used is **mode-specific**: squad-fpp ADR for squad queue, duo-fpp ADR for duo queue.
 - Players labeled "New" are assigned a default ADR of 150 for matching purposes.
@@ -287,16 +295,55 @@ On startup (`on_ready`), the bot scans both LFG voice channels and rebuilds the 
 
 ### 5.5 Queue Status Display
 
-The `/queue` command shows an ephemeral summary of both LFG lobbies:
+The `/queue` command shows an ephemeral status for the invoking player. If the player is not queued, it says so. If queued, it shows a single line with their queue info:
 
 ```
-LFG Squad — 3 waiting
-LFG Duo — 1 waiting (you, 5m 20s)
+LFG Squad — Waiting 1m 15s · need 2 more · laxative in 0m 45s
+LFG Duo — Waiting 3m 30s · fully open in 1m 30s
+LFG Squad — Waiting 6m 10s · need 1 more · wide open
 ```
 
-- Each lobby shows the player count.
-- If the invoking player is in a lobby, their personal wait time is appended.
+Fields (separated by ` · `):
+- **Wait time** — how long the player has been queued.
+- **Need X more** — how many additional players are needed to fill a group (omitted when the pool is full).
+- **Laxative countdown** — time until the next relaxation phase:
+  - `laxative in Xm Ys` — skill matching is still strict, shows countdown to relaxation start (2 min effective wait).
+  - `fully open in Xm Ys` — relaxation is active, shows countdown to full relaxation (5 min effective wait).
+  - `wide open` — skill matching is fully relaxed.
+- Countdowns account for the player's queue preference (FAST halves the real time to each phase).
 - The response is **ephemeral** to avoid channel spam.
+
+### 5.6 Skill Relaxation
+
+Skill matching loosens over time so that no player waits more than 5 minutes for a group.
+
+**Relaxation curve** — based on the longest effective wait in a candidate group:
+
+| Effective wait | Relaxation factor (r) | Effect |
+|---|---|---|
+| 0–2 min | 0.0 | Strict: full skill weight (0.6) |
+| 2–5 min | Linear 0.0→1.0 | Skill weight decreases linearly |
+| ≥5 min | 1.0 | Open: skill ignored, social + baseline only |
+
+**Queue preference** — players choose their matching speed via `/queuepref`:
+
+| Preference | Effect on effective wait |
+|---|---|
+| `skill` (default) | Raw wait time used |
+| `fast` | Effective wait = raw wait × 2 (relaxation happens twice as fast) |
+
+Stored in `players.queue_preference` (persisted in SQLite).
+
+**Hard constraints are never relaxed**: blocks and buddy bonds are enforced regardless of relaxation factor.
+
+**Periodic re-evaluation**: a `@tasks.loop(seconds=30)` background task in `lfg_handler.py` re-runs the matchmaker on all LFG pools, so long-waiting players benefit from relaxation even when no new player joins.
+
+**Constants** (`services/matchmaker.py`):
+
+| Constant | Value | Description |
+|---|---|---|
+| `RELAXATION_START_SECS` | 120 | Seconds before relaxation begins |
+| `RELAXATION_FULL_SECS` | 300 | Seconds at which skill is fully relaxed |
 
 ---
 
@@ -325,8 +372,9 @@ LFG Duo — 1 waiting (you, 5m 20s)
 
 | Command | Description | Response | Cooldown |
 |---|---|---|---|
-| `/queue` | Show player counts per LFG lobby, personal queue status and wait time | Ephemeral | 10s |
-| `/queue kick <@player>` | (Admin) Remove a player from LFG lobby | Ephemeral: confirmation | — |
+| `/queue` | Show your queue status: wait time, players needed, laxative countdown | Ephemeral | 10s |
+| `/queuepref <skill\|fast>` | Set matching preference: skill (tight matches) or fast (quicker groups) | Ephemeral | 10s |
+| `/kick <@player>` | (Admin) Remove a player from LFG lobby | Ephemeral: confirmation | — |
 
 ### 6.4 Admin
 
@@ -382,6 +430,7 @@ Discord-to-PUBG account linkage and cached stats.
 | `duo_fpp_tier` | TEXT | | Tier label for duo-fpp |
 | `duo_fpp_matches` | INTEGER | | Match count (current season) |
 | `adr_season` | TEXT | | Season ID these cached values are from |
+| `queue_preference` | TEXT | DEFAULT 'skill' | Matching preference: 'skill' or 'fast' |
 
 ### 7.3 `match_stats`
 
@@ -462,6 +511,7 @@ Passive tracking of who plays together. One row per player-pair per day.
 | Stats refresh | Every 2 hours | Fetch recent matches for all registered players, store FPP matches, recalculate per-mode ADR |
 | Season check | Daily | Fetch current season ID from PUBG API, detect season transitions |
 | Feedback cleanup | Daily | Delete feedback rows older than 84 days (12 weeks) |
+| Periodic match | Every 30 seconds | Re-run matchmaker on LFG pools so long-waiting players benefit from skill relaxation |
 
 ---
 
@@ -501,7 +551,7 @@ Passive tracking of who plays together. One row per player-pair per day.
   🔊 LFG Squad
   🔊 LFG Duo
 
-🔊 SQUADS
+🔊 PUBG VOICE
   (bot creates temporary channels here)
 ```
 
@@ -537,6 +587,8 @@ Passive tracking of who plays together. One row per player-pair per day.
 | `NEW_PLAYER_DEFAULT_ADR` | 150 | `services/matchmaker.py` | ADR assumed for "New" players in matching |
 | `FEEDBACK_MAX_AGE_DAYS` | 84 | `services/feedback_service.py` | When raw feedback is deleted |
 | `CO_PLAY_NORMALIZER` | 10 | `services/feedback_service.py` | Co-play sessions for max signal |
+| `RELAXATION_START_SECS` | 120 | `services/matchmaker.py` | Seconds before skill relaxation begins |
+| `RELAXATION_FULL_SECS` | 300 | `services/matchmaker.py` | Seconds at which skill weight reaches zero |
 
 ---
 

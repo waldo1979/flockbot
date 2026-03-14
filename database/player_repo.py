@@ -75,6 +75,16 @@ async def get_all_players(db: aiosqlite.Connection) -> list[dict]:
     return [dict(zip(cols, row)) for row in rows]
 
 
+async def set_queue_preference(
+    db: aiosqlite.Connection, discord_id: str, preference: str
+) -> None:
+    await db.execute(
+        "UPDATE players SET queue_preference = ? WHERE discord_id = ?",
+        (preference, discord_id),
+    )
+    await db.commit()
+
+
 async def get_leaderboard(
     db: aiosqlite.Connection, mode: str, limit: int = 10
 ) -> list[dict]:

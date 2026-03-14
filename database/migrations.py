@@ -4,7 +4,7 @@ import aiosqlite
 
 log = logging.getLogger(__name__)
 
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
 
 async def get_schema_version(db: aiosqlite.Connection) -> int:
@@ -45,6 +45,15 @@ async def _migrate_v1(db: aiosqlite.Connection) -> None:
     pass
 
 
+async def _migrate_v2(db: aiosqlite.Connection) -> None:
+    """Add queue_preference column to players table."""
+    await db.execute(
+        "ALTER TABLE players ADD COLUMN queue_preference TEXT DEFAULT 'skill'"
+    )
+    await db.commit()
+
+
 _MIGRATIONS: dict[int, callable] = {
     1: _migrate_v1,
+    2: _migrate_v2,
 }

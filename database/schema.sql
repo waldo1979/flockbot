@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS players (
     duo_fpp_adr       REAL,
     duo_fpp_tier      TEXT,
     duo_fpp_matches   INTEGER,
-    adr_season        TEXT
+    adr_season        TEXT,
+    queue_preference  TEXT DEFAULT 'skill'
 );
 
 CREATE TABLE IF NOT EXISTS match_stats (

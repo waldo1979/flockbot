@@ -1,6 +1,8 @@
 import itertools
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
 
 import aiosqlite
 
@@ -14,12 +16,45 @@ SOCIAL_WEIGHT = 0.4
 SKILL_RANGE_NORMALIZER = 400
 NEW_PLAYER_DEFAULT_ADR = 150
 
+RELAXATION_START_SECS = 120   # 2 minutes — strict matching before this
+RELAXATION_FULL_SECS = 300    # 5 minutes — skill fully relaxed after this
+
+
+class QueuePreference(Enum):
+    SKILL = "skill"
+    FAST = "fast"
+
 
 @dataclass
 class QueuedPlayer:
     discord_id: str
     pubg_name: str
     adr: float  # mode-specific, already resolved (with fallback/default)
+    join_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    preference: QueuePreference = QueuePreference.SKILL
+
+
+def _effective_wait_secs(player: QueuedPlayer, now: datetime) -> float:
+    """Raw wait seconds, doubled for FAST preference."""
+    raw = (now - player.join_time).total_seconds()
+    if player.preference == QueuePreference.FAST:
+        return raw * 2.0
+    return raw
+
+
+def _relaxation_factor(group: list[QueuedPlayer], now: datetime) -> float:
+    """Return 0.0–1.0 based on the longest effective wait in the group.
+
+    0–2 min: 0.0 (strict)
+    2–5 min: linear ramp
+    ≥5 min: 1.0 (fully relaxed)
+    """
+    max_wait = max(_effective_wait_secs(p, now) for p in group)
+    if max_wait <= RELAXATION_START_SECS:
+        return 0.0
+    if max_wait >= RELAXATION_FULL_SECS:
+        return 1.0
+    return (max_wait - RELAXATION_START_SECS) / (RELAXATION_FULL_SECS - RELAXATION_START_SECS)
 
 
 def _skill_score(group: list[QueuedPlayer]) -> float:
@@ -37,10 +72,22 @@ async def _social_score(db: aiosqlite.Connection, group: list[QueuedPlayer]) -> 
     return sum(scores) / len(scores)
 
 
-async def _total_score(db: aiosqlite.Connection, group: list[QueuedPlayer]) -> float:
+async def _total_score(
+    db: aiosqlite.Connection,
+    group: list[QueuedPlayer],
+    now: datetime | None = None,
+) -> float:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
     skill = _skill_score(group)
     social = await _social_score(db, group)
-    return SKILL_WEIGHT * skill + SOCIAL_WEIGHT * social
+
+    r = _relaxation_factor(group, now)
+    effective_skill_weight = SKILL_WEIGHT * (1.0 - r)
+    baseline = SKILL_WEIGHT * r
+
+    return effective_skill_weight * skill + SOCIAL_WEIGHT * social + baseline
 
 
 async def _has_block(db: aiosqlite.Connection, group: list[QueuedPlayer]) -> bool:
@@ -74,11 +121,15 @@ async def form_groups(
     db: aiosqlite.Connection,
     players: list[QueuedPlayer],
     group_size: int,
+    now: datetime | None = None,
 ) -> list[list[QueuedPlayer]]:
     """Form optimal groups from the player pool.
 
     Returns a list of groups. Unmatched players remain ungrouped.
     """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
     if len(players) < group_size:
         return []
 
@@ -136,7 +187,7 @@ async def form_groups(
                 if await _has_block(db, group):
                     continue
 
-                score = await _total_score(db, group)
+                score = await _total_score(db, group, now)
                 if score > best_score:
                     best_score = score
                     best_group = group
@@ -159,7 +210,7 @@ async def form_groups(
                 if await _has_block(db, group):
                     continue
 
-                score = await _total_score(db, group)
+                score = await _total_score(db, group, now)
                 if score > best_score:
                     best_score = score
                     best_group = group
@@ -178,12 +229,16 @@ async def form_groups(
 
 
 async def form_squads(
-    db: aiosqlite.Connection, players: list[QueuedPlayer]
+    db: aiosqlite.Connection,
+    players: list[QueuedPlayer],
+    now: datetime | None = None,
 ) -> list[list[QueuedPlayer]]:
-    return await form_groups(db, players, 4)
+    return await form_groups(db, players, 4, now)
 
 
 async def form_duos(
-    db: aiosqlite.Connection, players: list[QueuedPlayer]
+    db: aiosqlite.Connection,
+    players: list[QueuedPlayer],
+    now: datetime | None = None,
 ) -> list[list[QueuedPlayer]]:
-    return await form_groups(db, players, 2)
+    return await form_groups(db, players, 2, now)
