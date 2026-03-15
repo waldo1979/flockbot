@@ -6,6 +6,7 @@ from discord.ext import commands
 
 import config
 from database import player_repo
+from utils.channel_names import generate_channel_name
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +110,82 @@ class Admin(commands.Cog):
         await interaction.followup.send(
             f"Transferred **{pubg_name}** (was <@{old_discord_id}>) to "
             f"{to_player.mention}.",
+            ephemeral=True,
+        )
+
+
+    @admin_group.command(
+        name="testmatch",
+        description="Create a temp voice channel and move a player into it (for testing)",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(player="The player to move into the test channel")
+    async def testmatch(
+        self,
+        interaction: discord.Interaction,
+        player: discord.Member,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+
+        # Find the PUBG VOICE category
+        category = None
+        for cat in guild.categories:
+            if cat.name.upper() == "PUBG VOICE":
+                category = cat
+                break
+        if not category:
+            await interaction.followup.send(
+                "PUBG VOICE category not found.", ephemeral=True
+            )
+            return
+
+        # Player must be in a voice channel
+        if not player.voice or not player.voice.channel:
+            await interaction.followup.send(
+                f"{player.mention} is not in a voice channel.", ephemeral=True
+            )
+            return
+
+        name = generate_channel_name()
+
+        try:
+            temp_channel = await guild.create_voice_channel(
+                name=name,
+                category=category,
+                reason="Admin test match",
+            )
+        except discord.Forbidden as e:
+            await interaction.followup.send(
+                f"Cannot create voice channel: {e}", ephemeral=True
+            )
+            return
+
+        # Set permissions
+        try:
+            await temp_channel.set_permissions(
+                guild.default_role, connect=False,
+            )
+            await temp_channel.set_permissions(
+                guild.me,
+                connect=True, move_members=True, manage_channels=True,
+            )
+            await temp_channel.set_permissions(player, connect=True)
+        except discord.Forbidden:
+            log.warning("Could not set permissions on %s", name)
+
+        # Move player
+        try:
+            await player.move_to(temp_channel)
+        except discord.Forbidden:
+            await interaction.followup.send(
+                f"Cannot move {player.mention} — missing Move Members permission.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            f"Created **{name}** and moved {player.mention} into it.",
             ephemeral=True,
         )
 
