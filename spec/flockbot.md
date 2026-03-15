@@ -203,7 +203,7 @@ All responses are **ephemeral** (only the invoking player sees them).
 - When mutual, the `confirmed` field on both rows is set to `1`.
 - Effects of a confirmed buddy bond:
   - The matchmaker **always groups buddies together** (treats them as a single unit).
-  - If one buddy is in the LFG lobby and the other is online but not in the lobby, the bot **notifies the absent buddy** and **holds a slot for up to 5 minutes**.
+  - ~~If one buddy is in the LFG lobby and the other is online but not in the lobby, the bot **notifies the absent buddy** and **holds a slot for up to 5 minutes**.~~ **Deferred** — buddy notifications are disabled. Posting to a text channel is spammy and DMs are intrusive. A future implementation may use a less disruptive notification mechanism (e.g., a dedicated opt-in notification channel, or Discord's stage/event features). The matchmaker still groups buddies together when both are in the pool.
 - A player can view their confirmed buddy pairs via `/buddies`.
 
 ---
@@ -216,6 +216,7 @@ The Discord server must have two voice channels (detected by name):
 
 - **"LFG Squad"** — players join here to queue for squad (4-player) groups.
 - **"LFG Duo"** — players join here to queue for duo (2-player) groups.
+- **"Create Lobby"** — join-to-create channel. When a player joins, the bot creates an open temporary voice channel (4-person limit) and moves the player into it. Friends join freely — no registration or matchmaker involved.
 
 A channel category **"PUBG VOICE"** is used as the parent for bot-created temporary channels.
 
@@ -223,7 +224,7 @@ A channel category **"PUBG VOICE"** is used as the parent for bot-created tempor
 
 1. A registered player joins the "LFG Squad" or "LFG Duo" voice channel.
 2. The bot detects this via `on_voice_state_update` and adds the player to the in-memory matching pool.
-3. If the player has a confirmed buddy who is **online but not in the lobby**, the bot sends a notification: *"@BuddyB, your buddy @BuddyA is looking for a squad! Join LFG Squad to play together."* The bot holds a slot for the buddy for **up to 5 minutes**.
+3. ~~Buddy notification~~ **Deferred** — see §4.6. No notification is sent when a buddy joins.
 4. When the pool has enough players (4 for squad, 2 for duo), the matchmaker runs.
 5. The matchmaker forms optimal groups (see §5.3) and for each group:
    a. Creates a **temporary voice channel** with a random name (e.g., "Sneaky Corgi", "Tactical Penguin") under the PUBG VOICE category with **per-user permission overrides**: `@everyone` is denied Connect, each matched player is granted Connect, and the bot retains Connect/Move Members/Manage Channels. This ensures only matched players can join the channel, and they can **reconnect if they disconnect**.
@@ -232,7 +233,19 @@ A channel category **"PUBG VOICE"** is used as the parent for bot-created tempor
 6. When a temporary voice channel becomes **empty**, the bot waits **10 minutes** (grace period) before deleting it. If any matched player reconnects during this window, the deletion is cancelled. This handles internet outages and game crashes without losing the channel.
 7. If a player **leaves** the LFG lobby before being matched, they are removed from the pool.
 
-### 5.3 Matching Algorithm
+### 5.3 Manual Lobbies (Join-to-Create)
+
+For players who want to group up without the matchmaker:
+
+1. A player joins the **"Create Lobby"** voice channel.
+2. The bot creates a new temporary voice channel with a random name under PUBG VOICE, with a **4-person user limit** and **no permission restrictions** (anyone can join).
+3. The bot moves the player into the new channel.
+4. Friends join the channel directly — no registration, slash commands, or matchmaker involvement required.
+5. The same cleanup logic applies: when the channel is empty for 10 minutes, the bot deletes it.
+
+This is intentionally simple — no registration gate, no permission lockdown, no announcements. It's a convenience feature for premade groups.
+
+### 5.4 Matching Algorithm
 
 **Scoring function** for a candidate group G of size N:
 
@@ -240,7 +253,7 @@ A channel category **"PUBG VOICE"** is used as the parent for bot-created tempor
 skill_score(G)  = 1.0 - (max_adr(G) - min_adr(G)) / 400
 social_score(G) = mean(pairwise_compatibility(a, b) for all pairs in G)
 
-r = relaxation_factor(G)   # see §5.6
+r = relaxation_factor(G)   # see §5.7
 effective_skill_weight = 0.6 * (1.0 - r)
 baseline = 0.6 * r
 
@@ -263,7 +276,7 @@ At r=1 (5+ min wait): `0.4*social + 0.6` (skill irrelevant, social still matters
 - For pools of **≤20 players**: evaluate all `itertools.combinations` of the appropriate group size, score each, and greedily select the highest-scoring group, remove those players, repeat.
 - For pools of **>20 players**: bucket players by ADR tier first, form groups within tiers, then attempt cross-tier matching for remainders.
 
-### 5.4 Queue State
+### 5.5 Queue State
 
 Queue state is **in-memory only** — derived from who is currently in the LFG voice channels. There is no persistent queue table.
 
@@ -271,7 +284,7 @@ Pool state is stored on the bot instance (`bot.lfg_pools`) as `dict[int, dict[in
 
 On startup (`on_ready`), the bot scans both LFG voice channels and rebuilds the in-memory pools from any registered players already present. This ensures queue state survives container restarts and upgrades without requiring players to leave and rejoin.
 
-### 5.5 Queue Status Display
+### 5.6 Queue Status Display
 
 The `/queue` command shows an ephemeral status for the invoking player. If the player is not queued, it says so. If queued, it shows a single line with their queue info:
 
@@ -291,7 +304,7 @@ Fields (separated by ` · `):
 - Countdowns account for the player's queue preference (FAST halves the real time to each phase).
 - The response is **ephemeral** to avoid channel spam.
 
-### 5.6 Skill Relaxation
+### 5.7 Skill Relaxation
 
 Skill matching loosens over time so that no player waits more than 5 minutes for a group.
 
@@ -518,6 +531,7 @@ Best buddy bonds. Requires mutual confirmation.
 🎮 LFG
   🔊 LFG Squad
   🔊 LFG Duo
+  🔊 Create Lobby
 
 🔊 PUBG VOICE
   (bot creates temporary channels here)
@@ -549,7 +563,8 @@ Best buddy bonds. Requires mutual confirmation.
 |---|---|---|---|
 | `SKILL_WEIGHT` | 0.6 | `services/matchmaker.py` | Weight of skill similarity in matching |
 | `SOCIAL_WEIGHT` | 0.4 | `services/matchmaker.py` | Weight of social compatibility in matching |
-| `BUDDY_WAIT_MINUTES` | 5 | `events/lfg_handler.py` | How long to hold a slot for an absent buddy |
+| `LOBBY_USER_LIMIT` | 4 | `events/lfg_handler.py` | Max players in a manually created lobby channel |
+| `BUDDY_WAIT_MINUTES` | 5 | `events/lfg_handler.py` | *(Deferred)* How long to hold a slot for an absent buddy |
 | `STATS_REFRESH_HOURS` | 2 | `events/on_ready.py` | Interval between background stats refreshes |
 | `MIN_MATCHES_FOR_ADR` | 10 | `services/stats_service.py` | Minimum matches before showing ADR (else fallback) |
 | `NEW_PLAYER_DEFAULT_ADR` | 150 | `services/matchmaker.py` | ADR assumed for "New" players in matching |

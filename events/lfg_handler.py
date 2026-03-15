@@ -1,12 +1,11 @@
 import asyncio
 import logging
-import random
 from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands, tasks
 
-from database import feedback_repo, player_repo
+from database import player_repo
 from services.matchmaker import (
     QueuedPlayer, QueuePreference, form_squads, form_duos, NEW_PLAYER_DEFAULT_ADR,
 )
@@ -17,12 +16,11 @@ log = logging.getLogger(__name__)
 
 LFG_SQUAD_CHANNEL = "LFG Squad"
 LFG_DUO_CHANNEL = "LFG Duo"
+CREATE_LOBBY_CHANNEL = "Create Lobby"
 SQUADS_CATEGORY = "PUBG VOICE"
-BUDDY_WAIT_MINUTES = 5
+LOBBY_USER_LIMIT = 4
 TEMP_CHANNEL_GRACE_MINUTES = 10
 
-# Track buddy notifications to avoid spam: (buddy_id, channel_id) -> timestamp
-_buddy_notified: dict[tuple[int, int], datetime] = {}
 # Track pending deletions so we can cancel if someone rejoins: channel_id -> asyncio.Task
 _pending_deletions: dict[int, asyncio.Task] = {}
 
@@ -58,7 +56,7 @@ class LFGHandler(commands.Cog):
             category = self._find_category(guild)
             if not category:
                 continue
-            lfg_names = {LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL}
+            lfg_names = {LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL, CREATE_LOBBY_CHANNEL}
             for vc in list(category.voice_channels):
                 if vc.name in lfg_names:
                     continue  # Never delete the lobby channels
@@ -113,6 +111,10 @@ class LFGHandler(commands.Cog):
         if before.channel == after.channel:
             return
 
+        # --- Player joined "Create Lobby" → spawn a temp channel and move them ---
+        if after.channel and after.channel.name == CREATE_LOBBY_CHANNEL:
+            await self._create_lobby(member, after.channel)
+
         # --- Player joined an LFG channel ---
         if after.channel and after.channel.name in (LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL):
             channel = after.channel
@@ -135,9 +137,6 @@ class LFGHandler(commands.Cog):
 
             pool[member.id] = datetime.now(timezone.utc)
             log.info("%s joined %s pool (%d waiting)", player["pubg_name"], channel.name, len(pool))
-
-            # Notify buddies
-            await self._notify_buddies(member, channel)
 
             # Try to form groups
             await self._try_form(channel)
@@ -165,45 +164,33 @@ class LFGHandler(commands.Cog):
                     )
                     _pending_deletions[before.channel.id] = task
 
-    async def _notify_buddies(
-        self, member: discord.Member, channel: discord.VoiceChannel
+    async def _create_lobby(
+        self, member: discord.Member, trigger_channel: discord.VoiceChannel
     ) -> None:
-        discord_id = str(member.id)
-        buddy_ids = await feedback_repo.get_confirmed_buddies(self.bot.db, discord_id)
+        """Create an open temp voice channel and move the player into it."""
+        category = self._find_category(member.guild)
+        if not category:
+            log.error("PUBG VOICE category not found in %s", member.guild.name)
+            return
 
-        for bid in buddy_ids:
-            bid_int = int(bid)
+        name = generate_channel_name()
+        try:
+            temp_channel = await member.guild.create_voice_channel(
+                name=name,
+                category=category,
+                user_limit=LOBBY_USER_LIMIT,
+                reason=f"Manual lobby created by {member.display_name}",
+            )
+        except discord.Forbidden as e:
+            log.error("Cannot create lobby channel %s: %s", name, e)
+            return
 
-            # Already in the pool?
-            pool = self.bot.lfg_pools.get(channel.id, {})
-            if bid_int in pool:
-                continue
+        try:
+            await member.move_to(temp_channel)
+        except discord.Forbidden:
+            log.warning("Cannot move %s to %s", member.display_name, name)
 
-            # Already notified recently?
-            key = (bid_int, channel.id)
-            last = _buddy_notified.get(key)
-            if last and (datetime.now(timezone.utc) - last).total_seconds() < BUDDY_WAIT_MINUTES * 60:
-                continue
-
-            # Is the buddy online in this guild?
-            buddy_member = member.guild.get_member(bid_int)
-            if not buddy_member or buddy_member.status == discord.Status.offline:
-                continue
-
-            buddy_player = await player_repo.get_player(self.bot.db, bid)
-            if not buddy_player:
-                continue
-
-            _buddy_notified[key] = datetime.now(timezone.utc)
-
-            # Find a text channel to send the notification
-            text_channel = self._find_text_channel(member.guild)
-            if text_channel:
-                await text_channel.send(
-                    f"{buddy_member.mention}, your buddy **{member.display_name}** is looking for a "
-                    f"{'squad' if 'Squad' in channel.name else 'duo'}! "
-                    f"Join **{channel.name}** to play together."
-                )
+        log.info("%s created lobby %s", member.display_name, name)
 
     async def _delayed_delete(self, channel: discord.VoiceChannel) -> None:
         """Wait for the grace period, then delete the channel if still empty."""
