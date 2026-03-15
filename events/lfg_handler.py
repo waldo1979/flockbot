@@ -261,6 +261,9 @@ class LFGHandler(commands.Cog):
             return
 
         category = self._find_category(channel.guild)
+        if not category:
+            log.error("PUBG VOICE category not found in %s", channel.guild.name)
+            return
         text_channel = self._find_text_channel(channel.guild)
 
         for group in groups:
@@ -296,8 +299,8 @@ class LFGHandler(commands.Cog):
                 overwrites=overwrites,
                 reason="LFG group formed",
             )
-        except discord.Forbidden:
-            log.error("Cannot create voice channel %s", name)
+        except discord.Forbidden as e:
+            log.error("Cannot create voice channel %s: %s", name, e)
             return
 
         # Move players and remove from pool
