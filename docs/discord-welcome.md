@@ -23,7 +23,7 @@ Join one of the voice lobbies to find a group:
 - **LFG Squad** — queues you for a 4-player squad
 - **LFG Duo** — queues you for a 2-player duo
 
-When enough players are in the lobby, Flockbot forms a group and moves you into a temporary voice channel. When everyone leaves, the channel is cleaned up automatically.
+When enough players are in the lobby, Flockbot forms a group and moves you into a temporary voice channel (with a random name like "Sneaky Corgi"). If you disconnect, just rejoin the same channel — it stays open for 10 minutes. When everyone leaves for good, the channel is cleaned up automatically.
 
 **How matching works over time:**
 The bot starts with tight skill matching. If you're waiting a while, the laxative kicks in — it gradually loosens the skill requirement so you get a game faster. Type `/queue` to see your wait time, how many more players are needed, and when the laxative kicks in. Social compatibility (feedback, buddies) always matters — blocks are never overridden.
@@ -47,17 +47,13 @@ Your tier is based on your FPP ADR for the current season:
 
 Players with fewer than 10 matches this season show as **New**.
 
-## Rating Teammates
+## Social Connections
 
-After playing with someone, rate them to improve future matches:
+The more time you spend with someone in voice channels, the more likely the matchmaker pairs you together. No buttons to click — just hang out.
 
-- Type `/feedback @player` or right-click a player → **Apps → Rate Teammate**
-- **Thumbs Up** — had a good time, would play again
-- **Thumbs Down** — not a great fit
+For strong feelings, use `/feedback @player` or right-click a player → **Apps → Rate Teammate**:
 - **Never Again** — permanent block, you'll never be grouped together
 - **Best Buddy** — if they mark you back, you'll always be grouped together
-
-Feedback is anonymous. You can only rate someone once per 24 hours. Ratings fade over time so your reputation stays current.
 
 ---
 

@@ -2,13 +2,11 @@ import pytest
 
 from database import feedback_repo, player_repo
 from services.feedback_service import (
-    record_feedback,
     record_block,
     remove_block,
     is_blocked,
     record_buddy_request,
     are_buddies,
-    get_weighted_score,
     get_pairwise_compatibility,
 )
 
@@ -19,23 +17,6 @@ async def users(db):
     await player_repo.upsert_player(db, "B", "pubg_B", "PlayerB")
     await player_repo.upsert_player(db, "C", "pubg_C", "PlayerC")
     return db
-
-
-class TestRecordFeedback:
-    async def test_positive_feedback(self, users):
-        err = await record_feedback(users, "A", "B", 1)
-        assert err is None
-
-    async def test_self_feedback_rejected(self, users):
-        err = await record_feedback(users, "A", "A", 1)
-        assert err is not None
-        assert "yourself" in err.lower()
-
-    async def test_duplicate_within_24h(self, users):
-        await record_feedback(users, "A", "B", 1)
-        err = await record_feedback(users, "A", "B", -1)
-        assert err is not None
-        assert "24 hours" in err
 
 
 class TestBlocks:
@@ -77,39 +58,37 @@ class TestBuddies:
         assert "B" in buddies
 
 
-class TestWeightedScore:
-    async def test_no_feedback_returns_none(self, users):
-        score = await get_weighted_score(users, "A", "B")
-        assert score is None
+class TestHangoutCompatibility:
+    async def test_no_hangout_returns_zero(self, users):
+        score = await get_pairwise_compatibility(users, "A", "B")
+        assert score == 0.0
 
-    async def test_positive_feedback(self, users):
-        await feedback_repo.insert_feedback(users, "A", "B", 1)
-        score = await get_weighted_score(users, "A", "B")
-        assert score is not None
-        assert score > 0
+    async def test_hangout_produces_positive_score(self, users):
+        await feedback_repo.upsert_hangout_time(users, "A", "B", 60.0)
+        score = await get_pairwise_compatibility(users, "A", "B")
+        assert score > 0.0
 
-    async def test_negative_feedback(self, users):
-        await feedback_repo.insert_feedback(users, "A", "B", -1)
-        score = await get_weighted_score(users, "A", "B")
-        assert score is not None
-        assert score < 0
+    async def test_hangout_score_capped_at_one(self, users):
+        await feedback_repo.upsert_hangout_time(users, "A", "B", 10000.0)
+        score = await get_pairwise_compatibility(users, "A", "B")
+        assert score <= 1.0
+
+    async def test_canonical_ordering(self, users):
+        """Pair (B, A) should return same score as (A, B)."""
+        await feedback_repo.upsert_hangout_time(users, "B", "A", 120.0)
+        score_ab = await get_pairwise_compatibility(users, "A", "B")
+        score_ba = await get_pairwise_compatibility(users, "B", "A")
+        assert abs(score_ab - score_ba) < 0.001
+        assert score_ab > 0.0
+
+    async def test_hangout_accumulates(self, users):
+        await feedback_repo.upsert_hangout_time(users, "A", "B", 30.0)
+        await feedback_repo.upsert_hangout_time(users, "A", "B", 30.0)
+        minutes, _ = await feedback_repo.get_hangout_minutes(users, "A", "B")
+        assert minutes == 60.0
 
 
 class TestPairwiseCompatibility:
     async def test_no_data_returns_zero(self, users):
         score = await get_pairwise_compatibility(users, "A", "B")
         assert score == 0.0
-
-    async def test_negative_dominates(self, users):
-        await feedback_repo.insert_feedback(users, "A", "B", -1)
-        # Add co-play to try to override
-        await feedback_repo.record_co_play(users, "A", "B", "2026-03-01")
-        score = await get_pairwise_compatibility(users, "A", "B")
-        assert score < 0  # Negative feedback dominates
-
-    async def test_positive_with_co_play(self, users):
-        await feedback_repo.insert_feedback(users, "A", "B", 1)
-        for i in range(5):
-            await feedback_repo.record_co_play(users, "A", "B", f"2026-03-0{i+1}")
-        score = await get_pairwise_compatibility(users, "A", "B")
-        assert score > 0

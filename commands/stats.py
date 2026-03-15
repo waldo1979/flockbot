@@ -11,6 +11,7 @@ from services.stats_service import (
     refresh_player_stats,
     MIN_MATCHES_FOR_ADR,
 )
+from events.voice_tracker import refresh_registered_cache
 from utils.cooldown import cooldown
 from utils.embeds import stats_embed, leaderboard_embed
 
@@ -70,6 +71,7 @@ class Stats(commands.Cog):
         await player_repo.upsert_player(
             self.bot.db, discord_id, player_info.account_id, player_info.name
         )
+        refresh_registered_cache(discord_id)
 
         # Set server nickname
         try:

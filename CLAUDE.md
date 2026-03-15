@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Flockbot is a Discord bot for PUBG (PC/Steam) squad/duo formation. It matches players using skill level (ADR from the PUBG API) and social compatibility (peer feedback with exponential decay). Players queue by joining voice channel lobbies; the bot forms groups and moves them into temporary voice channels.
+Flockbot is a Discord bot for PUBG (PC/Steam) squad/duo formation. It matches players using skill level (ADR from the PUBG API) and social compatibility (pairwise voice hangout time). Players queue by joining voice channel lobbies; the bot forms groups and moves them into temporary voice channels.
 
 The formal specification lives in `spec/flockbot.md` — that is the source of truth for all design decisions.
 
@@ -38,7 +38,7 @@ docker compose up -d                         # Run containerized
 - ADR is mode-specific and season-aware. Fallback: current season (≥10 matches) → previous season → "New".
 - ADR tiers use numeric labels (`<100`, `100+`, `200+`, `250+`, `300+`, `400+`), never metals (gold/silver/bronze) and never "unranked" (PUBG-specific term).
 - PUBG API rate limit: 10 req/min for `/players` and `/seasons`. `/matches/{id}` and telemetry are exempt.
-- Feedback decay: 100% (0-2wk), 75% (2-4wk), 50% (4-6wk), 25% (6-8wk), 0% (>8wk). Raw entries deleted after 84 days.
+- Social compatibility is derived from pairwise voice hangout time (passive, no active feedback). Decays with a 4-week half-life.
 - Blocks ("Never Again") and buddy bonds are permanent — never decayed or cleaned up.
 - Queue state is in-memory only (derived from voice channel presence). No persistent queue table.
 - Timestamps in SQLite use ISO-8601 format: `datetime('now')` in SQL, `.isoformat()` in Python.

@@ -1,51 +1,36 @@
 import aiosqlite
 
 
-# --- Feedback ---
+# --- Hangout Time ---
 
-async def can_give_feedback(
-    db: aiosqlite.Connection, from_user: str, to_user: str
-) -> bool:
-    """Check if 24h has passed since last feedback from this user to target."""
-    cursor = await db.execute(
-        """SELECT 1 FROM feedback
-           WHERE from_user=? AND to_user=?
-           AND created_at > datetime('now', '-1 day')""",
-        (from_user, to_user),
-    )
-    return await cursor.fetchone() is None
-
-
-async def insert_feedback(
-    db: aiosqlite.Connection, from_user: str, to_user: str, value: int
+async def upsert_hangout_time(
+    db: aiosqlite.Connection, player_a: str, player_b: str, additional_minutes: float
 ) -> None:
+    """Add minutes to a pair's hangout total. Enforces canonical ordering."""
+    a, b = (player_a, player_b) if player_a < player_b else (player_b, player_a)
     await db.execute(
-        "INSERT INTO feedback (from_user, to_user, value) VALUES (?, ?, ?)",
-        (from_user, to_user, value),
+        """INSERT INTO hangout_time (player_a, player_b, minutes, last_updated)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(player_a, player_b)
+           DO UPDATE SET minutes = minutes + ?, last_updated = datetime('now')""",
+        (a, b, additional_minutes, additional_minutes),
     )
     await db.commit()
 
 
-async def get_feedback_between(
-    db: aiosqlite.Connection, from_user: str, to_user: str
-) -> list[dict]:
+async def get_hangout_minutes(
+    db: aiosqlite.Connection, user_a: str, user_b: str
+) -> tuple[float, str | None]:
+    """Return (total_minutes, last_updated) for a pair. Returns (0.0, None) if no row."""
+    a, b = (user_a, user_b) if user_a < user_b else (user_b, user_a)
     cursor = await db.execute(
-        "SELECT value, created_at FROM feedback WHERE from_user=? AND to_user=?",
-        (from_user, to_user),
+        "SELECT minutes, last_updated FROM hangout_time WHERE player_a = ? AND player_b = ?",
+        (a, b),
     )
-    rows = await cursor.fetchall()
-    return [{"value": r[0], "created_at": r[1]} for r in rows]
-
-
-async def get_all_feedback_to(
-    db: aiosqlite.Connection, to_user: str
-) -> list[dict]:
-    cursor = await db.execute(
-        "SELECT from_user, value, created_at FROM feedback WHERE to_user=?",
-        (to_user,),
-    )
-    rows = await cursor.fetchall()
-    return [{"from_user": r[0], "value": r[1], "created_at": r[2]} for r in rows]
+    row = await cursor.fetchone()
+    if not row:
+        return 0.0, None
+    return row[0], row[1]
 
 
 # --- Blocks ---
@@ -133,34 +118,3 @@ async def get_confirmed_buddies(
     )
     rows = await cursor.fetchall()
     return [r[0] for r in rows]
-
-
-# --- Co-play ---
-
-async def record_co_play(
-    db: aiosqlite.Connection, player_a: str, player_b: str, date: str
-) -> None:
-    # Enforce canonical ordering
-    a, b = (player_a, player_b) if player_a < player_b else (player_b, player_a)
-    await db.execute(
-        """INSERT INTO co_play_log (player_a, player_b, date, count)
-           VALUES (?, ?, ?, 1)
-           ON CONFLICT(player_a, player_b, date)
-           DO UPDATE SET count = count + 1""",
-        (a, b, date),
-    )
-    await db.commit()
-
-
-async def get_co_play_count(
-    db: aiosqlite.Connection, user_a: str, user_b: str, since_weeks: int = 8
-) -> int:
-    a, b = (user_a, user_b) if user_a < user_b else (user_b, user_a)
-    cursor = await db.execute(
-        """SELECT COALESCE(SUM(count), 0) FROM co_play_log
-           WHERE player_a=? AND player_b=?
-           AND date >= date('now', ? || ' days')""",
-        (a, b, str(-since_weeks * 7)),
-    )
-    row = await cursor.fetchone()
-    return row[0]

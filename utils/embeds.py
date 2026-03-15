@@ -52,8 +52,8 @@ def queue_embed(queue_type: str, players: list[dict]) -> discord.Embed:
     return embed
 
 
-def squad_embed(group: list[dict], group_num: int, queue_type: str) -> discord.Embed:
-    title = f"{queue_type.capitalize()} #{group_num}"
+def squad_embed(group: list[dict], channel_name: str, queue_type: str) -> discord.Embed:
+    title = f"{queue_type} — {channel_name}"
     embed = discord.Embed(title=title, color=0x2ECC71)
     lines = []
     for p in group:

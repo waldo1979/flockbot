@@ -3,7 +3,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from database import feedback_repo, player_repo
-from services import feedback_service
 from utils.cooldown import cooldown
 from utils.views import FeedbackView
 
@@ -51,7 +50,7 @@ class Feedback(commands.Cog):
 
         view = FeedbackView(target_id, target_player["pubg_name"])
         await interaction.response.send_message(
-            f"Rate **{target_player['pubg_name']}**:",
+            f"Actions for **{target_player['pubg_name']}**:",
             view=view,
             ephemeral=True,
         )
@@ -77,7 +76,7 @@ class Feedback(commands.Cog):
     ) -> None:
         from_id = str(interaction.user.id)
         target_id = str(player.id)
-        removed = await feedback_service.remove_block(self.bot.db, from_id, target_id)
+        removed = await feedback_repo.remove_block(self.bot.db, from_id, target_id)
         if removed:
             await interaction.response.send_message(
                 f"Block on **{player.display_name}** removed.", ephemeral=True

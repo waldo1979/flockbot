@@ -31,32 +31,6 @@ class FeedbackView(discord.ui.View):
         self.target_id = target_id
         self.target_name = target_name
 
-    @discord.ui.button(label="Thumbs Up", style=discord.ButtonStyle.green, emoji="\U0001f44d")
-    async def thumbs_up(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        from_id = str(interaction.user.id)
-        err = await feedback_service.record_feedback(interaction.client.db, from_id, self.target_id, 1)
-        if err:
-            await interaction.response.edit_message(content=err, view=None)
-        else:
-            await interaction.response.edit_message(
-                content=f"Positive feedback recorded for **{self.target_name}**.",
-                view=None,
-            )
-        self.stop()
-
-    @discord.ui.button(label="Thumbs Down", style=discord.ButtonStyle.red, emoji="\U0001f44e")
-    async def thumbs_down(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        from_id = str(interaction.user.id)
-        err = await feedback_service.record_feedback(interaction.client.db, from_id, self.target_id, -1)
-        if err:
-            await interaction.response.edit_message(content=err, view=None)
-        else:
-            await interaction.response.edit_message(
-                content=f"Feedback recorded for **{self.target_name}**.",
-                view=None,
-            )
-        self.stop()
-
     @discord.ui.button(label="Never Again", style=discord.ButtonStyle.danger, emoji="\U0001f6ab")
     async def never_again(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         from_id = str(interaction.user.id)
@@ -75,7 +49,5 @@ class FeedbackView(discord.ui.View):
             msg = f"You and **{self.target_name}** are now best buddies! The matchmaker will always group you together."
         else:
             msg = f"Buddy request sent to **{self.target_name}**. If they also mark you, you'll become best buddies."
-        # Also record as positive feedback
-        await feedback_service.record_feedback(interaction.client.db, from_id, self.target_id, 1)
         await interaction.response.edit_message(content=msg, view=None)
         self.stop()

@@ -19,7 +19,6 @@ class BackgroundTasks(commands.Cog):
     async def cog_unload(self) -> None:
         self.refresh_all_stats.cancel()
         self.refresh_season.cancel()
-        self.cleanup_feedback.cancel()
         await self.api.close()
 
     @commands.Cog.listener()
@@ -28,8 +27,6 @@ class BackgroundTasks(commands.Cog):
             self.refresh_season.start()
         if not self.refresh_all_stats.is_running():
             self.refresh_all_stats.start()
-        if not self.cleanup_feedback.is_running():
-            self.cleanup_feedback.start()
         log.info("Background tasks started")
 
     @tasks.loop(hours=24)
@@ -74,19 +71,6 @@ class BackgroundTasks(commands.Cog):
     async def before_refresh_season(self) -> None:
         await self.bot.wait_until_ready()
 
-    @tasks.loop(hours=24)
-    async def cleanup_feedback(self) -> None:
-        cursor = await self.bot.db.execute(
-            "DELETE FROM feedback WHERE created_at < datetime('now', '-84 days')"
-        )
-        deleted = cursor.rowcount
-        await self.bot.db.commit()
-        if deleted:
-            log.info("Cleaned up %d stale feedback entries", deleted)
-
-    @cleanup_feedback.before_loop
-    async def before_cleanup(self) -> None:
-        await self.bot.wait_until_ready()
 
 
 async def setup(bot: commands.Bot) -> None:

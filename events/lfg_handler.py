@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import random
 from datetime import datetime, timezone
 
 import discord
@@ -9,6 +11,7 @@ from services.matchmaker import (
     QueuedPlayer, QueuePreference, form_squads, form_duos, NEW_PLAYER_DEFAULT_ADR,
 )
 from utils.embeds import squad_embed
+from utils.channel_names import generate_channel_name
 
 log = logging.getLogger(__name__)
 
@@ -16,11 +19,12 @@ LFG_SQUAD_CHANNEL = "LFG Squad"
 LFG_DUO_CHANNEL = "LFG Duo"
 SQUADS_CATEGORY = "PUBG VOICE"
 BUDDY_WAIT_MINUTES = 5
+TEMP_CHANNEL_GRACE_MINUTES = 10
 
-# Counter for temp channel naming
-_group_counter = 0
 # Track buddy notifications to avoid spam: (buddy_id, channel_id) -> timestamp
 _buddy_notified: dict[tuple[int, int], datetime] = {}
+# Track pending deletions so we can cancel if someone rejoins: channel_id -> asyncio.Task
+_pending_deletions: dict[int, asyncio.Task] = {}
 
 
 class LFGHandler(commands.Cog):
@@ -128,15 +132,22 @@ class LFGHandler(commands.Cog):
             if pool:
                 pool.pop(member.id, None)
 
-        # --- Temp channel became empty → delete it ---
+        # --- Someone joined a temp channel → cancel pending deletion ---
+        if after.channel and after.channel.category:
+            if after.channel.category.name.upper() == SQUADS_CATEGORY:
+                task = _pending_deletions.pop(after.channel.id, None)
+                if task and not task.done():
+                    task.cancel()
+                    log.info("Cancelled deletion of %s (player rejoined)", after.channel.name)
+
+        # --- Temp channel became empty → schedule deletion after grace period ---
         if before.channel and before.channel != after.channel:
-            if before.channel.name.startswith(("Squad #", "Duo #")):
+            if before.channel.category and before.channel.category.name.upper() == SQUADS_CATEGORY:
                 if len(before.channel.members) == 0:
-                    try:
-                        await before.channel.delete(reason="Empty temp LFG channel")
-                        log.info("Deleted empty temp channel: %s", before.channel.name)
-                    except discord.Forbidden:
-                        log.warning("Cannot delete temp channel %s", before.channel.name)
+                    task = asyncio.create_task(
+                        self._delayed_delete(before.channel)
+                    )
+                    _pending_deletions[before.channel.id] = task
 
     async def _notify_buddies(
         self, member: discord.Member, channel: discord.VoiceChannel
@@ -177,6 +188,24 @@ class LFGHandler(commands.Cog):
                     f"{'squad' if 'Squad' in channel.name else 'duo'}! "
                     f"Join **{channel.name}** to play together."
                 )
+
+    async def _delayed_delete(self, channel: discord.VoiceChannel) -> None:
+        """Wait for the grace period, then delete the channel if still empty."""
+        try:
+            await asyncio.sleep(TEMP_CHANNEL_GRACE_MINUTES * 60)
+        except asyncio.CancelledError:
+            return
+        # Re-check: channel may have been deleted or someone rejoined
+        try:
+            if len(channel.members) == 0:
+                await channel.delete(reason="Empty temp LFG channel (grace period expired)")
+                log.info("Deleted empty temp channel: %s", channel.name)
+        except discord.NotFound:
+            pass  # Already deleted
+        except discord.Forbidden:
+            log.warning("Cannot delete temp channel %s", channel.name)
+        finally:
+            _pending_deletions.pop(channel.id, None)
 
     def _find_text_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
         for ch in guild.text_channels:
@@ -245,11 +274,7 @@ class LFGHandler(commands.Cog):
         category: discord.CategoryChannel | None,
         text_channel: discord.TextChannel | None,
     ) -> None:
-        global _group_counter
-        _group_counter += 1
-
-        prefix = "Squad" if is_squad else "Duo"
-        name = f"{prefix} #{_group_counter}"
+        name = generate_channel_name()
 
         # Build permission overrides: deny @everyone, allow matched players
         overwrites = {
@@ -295,8 +320,9 @@ class LFGHandler(commands.Cog):
             group_dicts.append({"pubg_name": p.pubg_name, "tier": tier})
 
         # Announce in text channel
+        mode = "Squad" if is_squad else "Duo"
         if text_channel:
-            embed = squad_embed(group_dicts, _group_counter, prefix)
+            embed = squad_embed(group_dicts, name, mode)
             await text_channel.send(embed=embed)
 
         log.info("Formed %s with %s", name, [p.pubg_name for p in group])

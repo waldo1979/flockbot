@@ -139,57 +139,56 @@ Both are cached on the `players` row and updated on each stats refresh.
 
 ---
 
-## 4. Social Feedback System
+## 4. Social System
 
 ### 4.1 Design Principles
 
-- Rooted in sociometric research and Dunbar's number (~60–90 meaningful gaming relationships).
-- Binary active feedback (thumbs up/down) with exponential decay minimizes cognitive overhead.
-- Passive signals (co-play tracking) supplement active feedback with zero player effort.
-- "Never Again" and "Best Buddy" are strong social signals stored permanently.
+- Social bonds form through **proximity** — players who spend time together in voice channels build natural connections (propinquity effect).
+- The system requires **zero active feedback** for the social gradient. Compatibility is derived entirely from shared voice hangout time.
+- Players only take explicit action for **strong feelings**: permanent blocks ("Never Again") and permanent bonds ("Best Buddy").
+- Blocks and buddy bonds are stored permanently and act as hard overrides on the passive signal.
 
-### 4.2 Feedback Entry Points
+### 4.2 Pairwise Voice Hangout Time
 
-Two ways to give feedback:
+The bot tracks how long pairs of registered players spend together in **any** voice channel (game channels, general voice, etc.):
 
-1. **Slash command**: `/feedback <@player>` → bot responds with an ephemeral message containing 4 buttons.
+- A `@tasks.loop(minutes=1)` background task samples all voice channels every minute.
+- For each channel with 2+ registered players, all pairwise combinations are generated.
+- Each pair accumulates 1 minute of hangout time per sample.
+- Pairs use canonical ordering (`player_a < player_b` lexicographically on discord_id) to prevent duplicates.
+- On startup, the bot scans all voice channels to rebuild presence state (survives restarts).
+
+This signal is:
+- **Voluntary** — not influenced by the matchmaker's grouping decisions.
+- **Effortless** — requires zero player action.
+- **Proportional** — more time together = stronger bond.
+
+### 4.3 Pairwise Compatibility Score
+
+```
+weeks_age = weeks since last hangout
+decay = 0.5 ^ (weeks_age / HANGOUT_HALF_LIFE_WEEKS)
+effective_minutes = total_minutes * decay
+compatibility = min(effective_minutes / HANGOUT_NORMALIZER, 1.0)
+```
+
+Range: `0.0` to `1.0`. Players with no shared hangout time score `0.0`. Blocks and buddy bonds are enforced at the matchmaker level, not in the compatibility score.
+
+### 4.4 Player Actions
+
+Two ways to take explicit social action:
+
+1. **Slash command**: `/feedback <@player>` → bot responds with an ephemeral message containing 2 buttons.
 2. **Context menu**: Right-click any user → Apps → **"Rate Teammate"** → same ephemeral button prompt.
 
-### 4.3 Feedback Buttons
-
-| Button | Style | Value | Behavior |
-|---|---|---|---|
-| Thumbs Up | Green | `+1` in `feedback` table | Records positive feedback |
-| Thumbs Down | Red | `-1` in `feedback` table | Records negative feedback |
-| Never Again | Danger/Black | Row in `blocks` table | Confirmation prompt first, then permanent block |
-| Best Buddy | Blurple | Row in `buddies` table | If mutual, confirms the bond |
+| Button | Style | Behavior |
+|---|---|---|
+| Never Again | Danger | Confirmation prompt, then permanent block |
+| Best Buddy | Blurple | If mutual, confirms the bond |
 
 All responses are **ephemeral** (only the invoking player sees them).
 
-### 4.4 Feedback Constraints
-
-- A player may only give feedback to the same person **once per 24 hours**.
-- A player cannot give feedback to themselves (enforced by DB constraint).
-- Feedback values are anonymous in display — a player can see their aggregate reputation but not individual voters.
-
-### 4.5 Exponential Decay
-
-Feedback entries lose weight over time:
-
-| Age | Weight |
-|---|---|
-| 0–2 weeks | 1.00 |
-| 2–4 weeks | 0.75 |
-| 4–6 weeks | 0.50 |
-| 6–8 weeks | 0.25 |
-| >8 weeks | 0.00 |
-
-### 4.6 Feedback Cleanup
-
-- A background task runs **daily** and deletes feedback rows older than **84 days** (12 weeks).
-- Blocks and buddy bonds are **never** cleaned up.
-
-### 4.7 "Never Again" Blocks
+### 4.5 "Never Again" Blocks
 
 - A hard block that prevents two players from **ever** being placed in the same group.
 - Stored permanently in the `blocks` table (no decay).
@@ -197,37 +196,15 @@ Feedback entries lose weight over time:
 - A player can remove their own block via `/unblock <@player>`.
 - Before recording, the bot shows a confirmation prompt: *"Are you sure? This blocks them from your groups permanently."*
 
-### 4.8 "Best Buddy" Bonds
+### 4.6 "Best Buddy" Bonds
 
 - A strong positive signal indicating a player wants to **always** play with another.
-- **Must be mutual**: if only A marks B as best buddy, it is treated as a regular thumbs-up. The bond only activates when both A→B and B→A exist.
+- **Must be mutual**: if only A marks B as best buddy, the bond does not activate until both A→B and B→A exist.
 - When mutual, the `confirmed` field on both rows is set to `1`.
 - Effects of a confirmed buddy bond:
   - The matchmaker **always groups buddies together** (treats them as a single unit).
   - If one buddy is in the LFG lobby and the other is online but not in the lobby, the bot **notifies the absent buddy** and **holds a slot for up to 5 minutes**.
 - A player can view their confirmed buddy pairs via `/buddies`.
-
-### 4.9 Passive Co-Play Tracking
-
-- The bot monitors `on_voice_state_update` events.
-- When two or more registered players share a voice channel for **≥15 minutes**, the bot logs the pair to `co_play_log` (one entry per pair per day, with a count field that increments).
-- The canonical ordering constraint `player_a < player_b` prevents duplicate pair entries.
-- Co-play data is used as a weak positive signal in compatibility scoring (see §5.3).
-
-### 4.10 Pairwise Compatibility Score
-
-```
-direct_score = avg(decay_weighted feedback between A and B, both directions)
-               Range: -1.0 to +1.0. Default 0.0 if no feedback exists.
-
-co_play_signal = min(co_play_count_last_8_weeks / 10, 1.0)
-                 Range: 0.0 to 1.0. 10+ sessions = max signal.
-
-If direct_score < 0:
-    compatibility = direct_score          # Negative feedback dominates
-Else:
-    compatibility = 0.7 * direct_score + 0.3 * co_play_signal
-```
 
 ---
 
@@ -249,10 +226,10 @@ A channel category **"PUBG VOICE"** is used as the parent for bot-created tempor
 3. If the player has a confirmed buddy who is **online but not in the lobby**, the bot sends a notification: *"@BuddyB, your buddy @BuddyA is looking for a squad! Join LFG Squad to play together."* The bot holds a slot for the buddy for **up to 5 minutes**.
 4. When the pool has enough players (4 for squad, 2 for duo), the matchmaker runs.
 5. The matchmaker forms optimal groups (see §5.3) and for each group:
-   a. Creates a **temporary voice channel** (e.g., "Squad #1") under the PUBG VOICE category with **per-user permission overrides**: `@everyone` is denied Connect, each matched player is granted Connect, and the bot retains Connect/Move Members/Manage Channels. This ensures only matched players can join the channel, and they can **reconnect if they disconnect**.
+   a. Creates a **temporary voice channel** with a random name (e.g., "Sneaky Corgi", "Tactical Penguin") under the PUBG VOICE category with **per-user permission overrides**: `@everyone` is denied Connect, each matched player is granted Connect, and the bot retains Connect/Move Members/Manage Channels. This ensures only matched players can join the channel, and they can **reconnect if they disconnect**.
    b. **Moves** all matched players into the temporary channel.
    c. Posts a match announcement in a text channel showing the group members and their tiers.
-6. When a temporary voice channel becomes **empty**, the bot deletes it.
+6. When a temporary voice channel becomes **empty**, the bot waits **10 minutes** (grace period) before deleting it. If any matched player reconnects during this window, the deletion is cancelled. This handles internet outages and game crashes without losing the channel.
 7. If a player **leaves** the LFG lobby before being matched, they are removed from the pool.
 
 ### 5.3 Matching Algorithm
@@ -453,18 +430,18 @@ Per-match damage data fetched from PUBG API. Only FPP modes stored.
 | `fetched_at` | TEXT | NOT NULL, DEFAULT now |
 | | | UNIQUE(discord_id, match_id) |
 
-### 7.4 `feedback`
+### 7.4 `hangout_time`
 
-Binary thumbs up/down entries. Subject to exponential decay and 12-week cleanup.
+Pairwise voice channel hangout time. Accumulated by periodic sampling.
 
-| Column | Type | Constraints |
-|---|---|---|
-| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT |
-| `from_user` | TEXT | NOT NULL, FK → players |
-| `to_user` | TEXT | NOT NULL, FK → players |
-| `value` | INTEGER | NOT NULL, CHECK IN (-1, 1) |
-| `created_at` | TEXT | NOT NULL, DEFAULT now |
-| | | CHECK(from_user != to_user) |
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `player_a` | TEXT | NOT NULL | Lexicographically smaller discord_id |
+| `player_b` | TEXT | NOT NULL | Lexicographically larger discord_id |
+| `minutes` | REAL | NOT NULL, DEFAULT 0 | Total accumulated minutes |
+| `last_updated` | TEXT | NOT NULL, DEFAULT now | Used for decay calculation |
+| | | UNIQUE(player_a, player_b) | |
+| | | CHECK(player_a < player_b) | Canonical ordering |
 
 ### 7.5 `blocks`
 
@@ -491,18 +468,6 @@ Best buddy bonds. Requires mutual confirmation.
 | | | PRIMARY KEY (from_user, to_user) | |
 | | | CHECK(from_user != to_user) | |
 
-### 7.7 `co_play_log`
-
-Passive tracking of who plays together. One row per player-pair per day.
-
-| Column | Type | Constraints | Notes |
-|---|---|---|---|
-| `player_a` | TEXT | NOT NULL | Lexicographically smaller discord_id |
-| `player_b` | TEXT | NOT NULL | Lexicographically larger discord_id |
-| `date` | TEXT | NOT NULL | YYYY-MM-DD |
-| `count` | INTEGER | NOT NULL, DEFAULT 1 | Incremented per co-play session |
-| | | UNIQUE(player_a, player_b, date) | |
-| | | CHECK(player_a < player_b) | Canonical ordering |
 
 ---
 
@@ -511,9 +476,9 @@ Passive tracking of who plays together. One row per player-pair per day.
 | Task | Frequency | Description |
 |---|---|---|
 | Welcome messages | On startup | Purge bot messages in #rules, re-post from `docs/discord-welcome.md` (3 messages) |
+| Hangout time accumulation | Every 1 minute | Sample voice channels, accumulate pairwise hangout minutes for registered players |
 | Stats refresh | Every 2 hours | Fetch recent matches for all registered players, store FPP matches, recalculate per-mode ADR |
 | Season check | Daily | Fetch current season ID from PUBG API, detect season transitions |
-| Feedback cleanup | Daily | Delete feedback rows older than 84 days (12 weeks) |
 | Periodic match | Every 30 seconds | Re-run matchmaker on LFG pools so long-waiting players benefit from skill relaxation |
 
 ---
@@ -537,7 +502,7 @@ Passive tracking of who plays together. One row per player-pair per day.
 
 | Intent | Privileged? | Reason |
 |---|---|---|
-| `GUILD_VOICE_STATES` | No | Detect voice channel joins/leaves for LFG and co-play tracking |
+| `GUILD_VOICE_STATES` | No | Detect voice channel joins/leaves for LFG and hangout time tracking |
 
 ### 9.3 Required Channel Structure
 
@@ -588,8 +553,8 @@ Passive tracking of who plays together. One row per player-pair per day.
 | `STATS_REFRESH_HOURS` | 2 | `events/on_ready.py` | Interval between background stats refreshes |
 | `MIN_MATCHES_FOR_ADR` | 10 | `services/stats_service.py` | Minimum matches before showing ADR (else fallback) |
 | `NEW_PLAYER_DEFAULT_ADR` | 150 | `services/matchmaker.py` | ADR assumed for "New" players in matching |
-| `FEEDBACK_MAX_AGE_DAYS` | 84 | `services/feedback_service.py` | When raw feedback is deleted |
-| `CO_PLAY_NORMALIZER` | 10 | `services/feedback_service.py` | Co-play sessions for max signal |
+| `HANGOUT_NORMALIZER` | 600 | `services/feedback_service.py` | Effective minutes for max compatibility signal (10 hours) |
+| `HANGOUT_HALF_LIFE_WEEKS` | 4.0 | `services/feedback_service.py` | Half-life for hangout time decay |
 | `RELAXATION_START_SECS` | 120 | `services/matchmaker.py` | Seconds before skill relaxation begins |
 | `RELAXATION_FULL_SECS` | 300 | `services/matchmaker.py` | Seconds at which skill weight reaches zero |
 
@@ -615,18 +580,18 @@ flockbot/
     __init__.py
     admin.py                      # /admin sync, /admin cleanup
     stats.py                      # /register, /stats, /leaderboard
-    feedback.py                   # /feedback, /unblock, /buddies, context menu
+    feedback.py                   # /feedback (block/buddy), /unblock, /buddies, context menu
     queue.py                      # /queue status, /queue kick
   events/
     __init__.py
     on_ready.py                   # Startup, background task scheduling
     lfg_handler.py                # Voice-based LFG detection, temp channel mgmt
-    voice_tracker.py              # Passive co-play logging
+    voice_tracker.py              # Pairwise voice hangout time tracking
   services/
     __init__.py
     pubg_api.py                   # PUBG API client, rate limiting, caching
     stats_service.py              # ADR calculation, tier assignment, season fallback
-    feedback_service.py           # Decay scoring, blocks, buddies, compatibility
+    feedback_service.py           # Hangout-based compatibility, blocks, buddies
     matchmaker.py                 # Squad/duo formation algorithm
   database/
     __init__.py
@@ -646,9 +611,9 @@ flockbot/
     __init__.py
     conftest.py                   # In-memory SQLite fixtures, mock PUBG API
     test_stats_service.py         # ADR calc, tiers, season fallback, mode filtering
-    test_feedback_service.py      # Decay, blocks, buddy confirmation
+    test_feedback_service.py      # Hangout compatibility, blocks, buddy confirmation
     test_matchmaker.py            # Grouping, veto, buddy bonding, edge cases
     test_pubg_api.py              # Mock HTTP, rate limiter, 429 retry
     test_rate_limiter.py          # Token bucket behavior
-    test_decay.py                 # Parametrized decay weight boundaries
+    test_registration.py          # Registration abuse prevention, admin transfer
 ```

@@ -36,16 +36,16 @@ CREATE TABLE IF NOT EXISTS match_stats (
 CREATE INDEX IF NOT EXISTS idx_match_stats_player_mode
     ON match_stats(discord_id, game_mode, season);
 
-CREATE TABLE IF NOT EXISTS feedback (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_user  TEXT NOT NULL REFERENCES players(discord_id),
-    to_user    TEXT NOT NULL REFERENCES players(discord_id),
-    value      INTEGER NOT NULL CHECK(value IN (-1, 1)),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    CHECK(from_user != to_user)
+CREATE TABLE IF NOT EXISTS hangout_time (
+    player_a     TEXT NOT NULL,
+    player_b     TEXT NOT NULL,
+    minutes      REAL NOT NULL DEFAULT 0,
+    last_updated TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(player_a, player_b),
+    CHECK(player_a < player_b)
 );
-CREATE INDEX IF NOT EXISTS idx_feedback_pair
-    ON feedback(from_user, to_user, created_at);
+CREATE INDEX IF NOT EXISTS idx_hangout_time
+    ON hangout_time(player_a, player_b);
 
 CREATE TABLE IF NOT EXISTS blocks (
     from_user  TEXT NOT NULL REFERENCES players(discord_id),
@@ -64,13 +64,3 @@ CREATE TABLE IF NOT EXISTS buddies (
     CHECK(from_user != to_user)
 );
 
-CREATE TABLE IF NOT EXISTS co_play_log (
-    player_a TEXT NOT NULL,
-    player_b TEXT NOT NULL,
-    date     TEXT NOT NULL,
-    count    INTEGER NOT NULL DEFAULT 1,
-    UNIQUE(player_a, player_b, date),
-    CHECK(player_a < player_b)
-);
-CREATE INDEX IF NOT EXISTS idx_co_play
-    ON co_play_log(player_a, player_b, date);
