@@ -44,7 +44,7 @@ async def get_player_by_pubg_name(
     db: aiosqlite.Connection, pubg_name: str
 ) -> dict | None:
     cursor = await db.execute(
-        "SELECT * FROM players WHERE pubg_name = ?", (pubg_name,)
+        "SELECT * FROM players WHERE pubg_name COLLATE NOCASE = ?", (pubg_name,)
     )
     row = await cursor.fetchone()
     if not row:

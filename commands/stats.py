@@ -94,9 +94,31 @@ class Stats(commands.Cog):
             f"Registered as **{player_info.name}**!", embed=embed, ephemeral=True
         )
 
-    @app_commands.command(name="stats", description="Show your PUBG stats")
+    @app_commands.command(
+        name="stats", description="Show your PUBG stats, or look up a registered player"
+    )
+    @app_commands.describe(pubg_name="Optional: look up a registered player by PUBG name")
     @cooldown(30)
-    async def stats(self, interaction: discord.Interaction) -> None:
+    async def stats(
+        self, interaction: discord.Interaction, pubg_name: str | None = None
+    ) -> None:
+        if pubg_name:
+            player = await player_repo.get_player_by_pubg_name(
+                self.bot.db, pubg_name
+            )
+            if not player:
+                await interaction.response.send_message(
+                    f"No registered player named **{pubg_name}**.",
+                    ephemeral=True,
+                )
+                return
+
+            season = await self._ensure_season()
+            embed = self._build_stats_embed(player, season)
+            await interaction.response.send_message(embed=embed)
+            return
+
+        # No argument — show own stats
         discord_id = str(interaction.user.id)
         player = await player_repo.get_player(self.bot.db, discord_id)
         if not player:
