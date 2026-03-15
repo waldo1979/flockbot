@@ -4,7 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from database import player_repo
+from database import cache_repo, player_repo
 from services.pubg_api import PUBGApiClient
 from services.stats_service import (
     get_effective_adr,
@@ -16,6 +16,9 @@ from utils.cooldown import cooldown
 from utils.embeds import stats_embed, leaderboard_embed
 
 log = logging.getLogger(__name__)
+
+# Consider cached player "fresh" if stats updated within this many hours
+CACHE_FRESH_HOURS = 2
 
 
 class Stats(commands.Cog):
@@ -81,41 +84,159 @@ class Stats(commands.Cog):
                 "Cannot set nickname for %s (likely server owner)", interaction.user
             )
 
-        # Fetch initial stats
-        season = await self._ensure_season()
-        if season:
-            await refresh_player_stats(
-                self.bot.db, self.api, discord_id, season, self.previous_season
+        # Check if player_cache has stats for this pubg_id (previously looked up)
+        cached = await cache_repo.get_cached_player(
+            self.bot.db, player_info.account_id
+        )
+        if cached and cached.get("squad_fpp_adr") is not None:
+            # Copy cached stats to the players row
+            await player_repo.update_cached_stats(
+                self.bot.db,
+                discord_id=discord_id,
+                squad_fpp_adr=cached["squad_fpp_adr"],
+                squad_fpp_tier=cached["squad_fpp_tier"],
+                squad_fpp_matches=cached["squad_fpp_matches"] or 0,
+                duo_fpp_adr=cached["duo_fpp_adr"],
+                duo_fpp_tier=cached["duo_fpp_tier"],
+                duo_fpp_matches=cached["duo_fpp_matches"] or 0,
+                adr_season=cached["adr_season"] or "",
+            )
+            await cache_repo.delete_cached_player(
+                self.bot.db, player_info.account_id
+            )
+        else:
+            # No cached data — fetch fresh stats
+            season = await self._ensure_season()
+            if season:
+                computed = await refresh_player_stats(
+                    self.bot.db, self.api, player_info.account_id,
+                    season, self.previous_season,
+                )
+                if computed:
+                    await player_repo.update_cached_stats(
+                        self.bot.db,
+                        discord_id=discord_id,
+                        squad_fpp_adr=computed.squad_fpp_adr,
+                        squad_fpp_tier=computed.squad_fpp_tier,
+                        squad_fpp_matches=computed.squad_fpp_matches,
+                        duo_fpp_adr=computed.duo_fpp_adr,
+                        duo_fpp_tier=computed.duo_fpp_tier,
+                        duo_fpp_matches=computed.duo_fpp_matches,
+                        adr_season=computed.adr_season,
+                    )
+
+        # Clean up cache entry if it exists (in case it had no stats)
+        if cached:
+            await cache_repo.delete_cached_player(
+                self.bot.db, player_info.account_id
             )
 
         player = await player_repo.get_player(self.bot.db, discord_id)
+        season = await self._ensure_season()
         embed = self._build_stats_embed(player, season)
         await interaction.followup.send(
             f"Registered as **{player_info.name}**!", embed=embed, ephemeral=True
         )
 
     @app_commands.command(
-        name="stats", description="Show your PUBG stats, or look up a registered player"
+        name="stats", description="Show PUBG stats for any player"
     )
-    @app_commands.describe(pubg_name="Optional: look up a registered player by PUBG name")
+    @app_commands.describe(pubg_name="Optional: look up any player by PUBG name")
     @cooldown(30)
     async def stats(
         self, interaction: discord.Interaction, pubg_name: str | None = None
     ) -> None:
         if pubg_name:
+            # 1. Check registered players
             player = await player_repo.get_player_by_pubg_name(
                 self.bot.db, pubg_name
             )
-            if not player:
-                await interaction.response.send_message(
-                    f"No registered player named **{pubg_name}**.",
-                    ephemeral=True,
+            if player:
+                season = await self._ensure_season()
+                embed = self._build_stats_embed(player, season)
+                await interaction.response.send_message(embed=embed)
+                return
+
+            # 2. Check player_cache for fresh data
+            cached = await cache_repo.get_cached_player_by_name(
+                self.bot.db, pubg_name
+            )
+            if cached and cached.get("squad_fpp_adr") is not None:
+                await cache_repo.touch_lookup(self.bot.db, cached["pubg_id"])
+                season = await self._ensure_season()
+                embed = self._build_stats_embed(
+                    cached, season, is_registered=False
+                )
+                await interaction.response.send_message(embed=embed)
+                return
+
+            # 3. Defer — API calls ahead
+            await interaction.response.defer()
+
+            # 4. Look up on PUBG API
+            player_info = await self.api.get_player_by_name(pubg_name)
+            if not player_info:
+                await interaction.followup.send(
+                    f"Could not find PUBG player **{pubg_name}** on Steam."
                 )
                 return
 
+            # 5. Check if this pubg_id belongs to a registered player (name change)
+            registered = await player_repo.get_player_by_pubg_id(
+                self.bot.db, player_info.account_id
+            )
+            if registered:
+                season = await self._ensure_season()
+                embed = self._build_stats_embed(registered, season)
+                await interaction.followup.send(embed=embed)
+                return
+
+            # 6. Upsert into player_cache
+            await cache_repo.upsert_cached_player(
+                self.bot.db, player_info.account_id, player_info.name
+            )
+
+            # 7. Refresh stats
             season = await self._ensure_season()
-            embed = self._build_stats_embed(player, season)
-            await interaction.response.send_message(embed=embed)
+            if season:
+                computed = await refresh_player_stats(
+                    self.bot.db, self.api, player_info.account_id,
+                    season, self.previous_season,
+                )
+                if computed:
+                    # 8. Store in cache
+                    await cache_repo.update_cached_stats(
+                        self.bot.db,
+                        pubg_id=player_info.account_id,
+                        squad_fpp_adr=computed.squad_fpp_adr,
+                        squad_fpp_tier=computed.squad_fpp_tier,
+                        squad_fpp_matches=computed.squad_fpp_matches,
+                        duo_fpp_adr=computed.duo_fpp_adr,
+                        duo_fpp_tier=computed.duo_fpp_tier,
+                        duo_fpp_matches=computed.duo_fpp_matches,
+                        adr_season=computed.adr_season,
+                    )
+
+            # 9. Build embed with registration nudge
+            cached = await cache_repo.get_cached_player(
+                self.bot.db, player_info.account_id
+            )
+            if cached:
+                embed = self._build_stats_embed(
+                    cached, season, is_registered=False
+                )
+            else:
+                # Fallback: minimal embed
+                embed = self._build_stats_embed(
+                    {"pubg_name": player_info.name,
+                     "squad_fpp_adr": None, "squad_fpp_tier": None,
+                     "squad_fpp_matches": 0, "duo_fpp_adr": None,
+                     "duo_fpp_tier": None, "duo_fpp_matches": 0},
+                    season, is_registered=False,
+                )
+
+            # 10. Send embed
+            await interaction.followup.send(embed=embed)
             return
 
         # No argument — show own stats
@@ -168,10 +289,23 @@ class Stats(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         season = await self._ensure_season()
-        if season:
-            await refresh_player_stats(
-                self.bot.db, self.api, discord_id, season, self.previous_season
+        if season and player["pubg_id"]:
+            computed = await refresh_player_stats(
+                self.bot.db, self.api, player["pubg_id"],
+                season, self.previous_season,
             )
+            if computed:
+                await player_repo.update_cached_stats(
+                    self.bot.db,
+                    discord_id=discord_id,
+                    squad_fpp_adr=computed.squad_fpp_adr,
+                    squad_fpp_tier=computed.squad_fpp_tier,
+                    squad_fpp_matches=computed.squad_fpp_matches,
+                    duo_fpp_adr=computed.duo_fpp_adr,
+                    duo_fpp_tier=computed.duo_fpp_tier,
+                    duo_fpp_matches=computed.duo_fpp_matches,
+                    adr_season=computed.adr_season,
+                )
 
         player = await player_repo.get_player(self.bot.db, discord_id)
         embed = self._build_stats_embed(player, season)
@@ -198,7 +332,7 @@ class Stats(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     def _build_stats_embed(
-        self, player: dict, season: str | None
+        self, player: dict, season: str | None, is_registered: bool = True
     ) -> discord.Embed:
         squad_fb = player["squad_fpp_matches"] and player["squad_fpp_matches"] < MIN_MATCHES_FOR_ADR
         duo_fb = player["duo_fpp_matches"] and player["duo_fpp_matches"] < MIN_MATCHES_FOR_ADR
@@ -213,6 +347,7 @@ class Stats(commands.Cog):
             season=season,
             is_fallback_squad=bool(squad_fb),
             is_fallback_duo=bool(duo_fb),
+            is_registered=is_registered,
         )
 
 

@@ -40,12 +40,12 @@ class Admin(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         db = self.bot.db
         cursor = await db.execute(
-            "DELETE FROM feedback WHERE created_at < datetime('now', '-84 days')"
+            "DELETE FROM player_cache WHERE last_lookup < datetime('now', '-30 days')"
         )
         deleted = cursor.rowcount
         await db.commit()
         await interaction.followup.send(
-            f"Cleanup complete. Deleted {deleted} stale feedback rows.",
+            f"Cleanup complete. Deleted {deleted} stale cached player entries.",
             ephemeral=True,
         )
 

@@ -4,7 +4,7 @@ import aiosqlite
 
 log = logging.getLogger(__name__)
 
-CURRENT_VERSION = 3
+CURRENT_VERSION = 4
 
 
 async def get_schema_version(db: aiosqlite.Connection) -> int:
@@ -74,8 +74,67 @@ async def _migrate_v3(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+async def _migrate_v4(db: aiosqlite.Connection) -> None:
+    """Add player_cache table and migrate match_stats from discord_id to pubg_id."""
+    # Create player_cache table
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS player_cache (
+            pubg_id           TEXT PRIMARY KEY,
+            pubg_name         TEXT NOT NULL,
+            last_lookup       TEXT NOT NULL DEFAULT (datetime('now')),
+            last_stats_update TEXT,
+            squad_fpp_adr     REAL,
+            squad_fpp_tier    TEXT,
+            squad_fpp_matches INTEGER DEFAULT 0,
+            duo_fpp_adr       REAL,
+            duo_fpp_tier      TEXT,
+            duo_fpp_matches   INTEGER DEFAULT 0,
+            adr_season        TEXT
+        )
+    """)
+
+    # Recreate match_stats with pubg_id instead of discord_id
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS match_stats_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            pubg_id      TEXT NOT NULL,
+            match_id     TEXT NOT NULL,
+            game_mode    TEXT NOT NULL CHECK(game_mode IN ('squad-fpp', 'duo-fpp')),
+            season       TEXT NOT NULL,
+            damage_dealt REAL NOT NULL,
+            kills        INTEGER NOT NULL,
+            assists      INTEGER NOT NULL,
+            win_place    INTEGER NOT NULL,
+            match_date   TEXT NOT NULL,
+            fetched_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(pubg_id, match_id)
+        )
+    """)
+
+    # Backfill: join old match_stats with players to get pubg_id
+    await db.execute("""
+        INSERT OR IGNORE INTO match_stats_new
+            (pubg_id, match_id, game_mode, season, damage_dealt,
+             kills, assists, win_place, match_date, fetched_at)
+        SELECT p.pubg_id, ms.match_id, ms.game_mode, ms.season, ms.damage_dealt,
+               ms.kills, ms.assists, ms.win_place, ms.match_date, ms.fetched_at
+        FROM match_stats ms
+        JOIN players p ON ms.discord_id = p.discord_id
+        WHERE p.pubg_id IS NOT NULL
+    """)
+
+    await db.execute("DROP TABLE match_stats")
+    await db.execute("ALTER TABLE match_stats_new RENAME TO match_stats")
+    await db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_match_stats_player_mode
+            ON match_stats(pubg_id, game_mode, season)
+    """)
+    await db.commit()
+
+
 _MIGRATIONS: dict[int, callable] = {
     1: _migrate_v1,
     2: _migrate_v2,
     3: _migrate_v3,
+    4: _migrate_v4,
 }

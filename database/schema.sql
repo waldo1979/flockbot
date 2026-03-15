@@ -19,9 +19,23 @@ CREATE TABLE IF NOT EXISTS players (
     queue_preference  TEXT DEFAULT 'skill'
 );
 
+CREATE TABLE IF NOT EXISTS player_cache (
+    pubg_id           TEXT PRIMARY KEY,
+    pubg_name         TEXT NOT NULL,
+    last_lookup       TEXT NOT NULL DEFAULT (datetime('now')),
+    last_stats_update TEXT,
+    squad_fpp_adr     REAL,
+    squad_fpp_tier    TEXT,
+    squad_fpp_matches INTEGER DEFAULT 0,
+    duo_fpp_adr       REAL,
+    duo_fpp_tier      TEXT,
+    duo_fpp_matches   INTEGER DEFAULT 0,
+    adr_season        TEXT
+);
+
 CREATE TABLE IF NOT EXISTS match_stats (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    discord_id   TEXT NOT NULL REFERENCES players(discord_id),
+    pubg_id      TEXT NOT NULL,
     match_id     TEXT NOT NULL,
     game_mode    TEXT NOT NULL CHECK(game_mode IN ('squad-fpp', 'duo-fpp')),
     season       TEXT NOT NULL,
@@ -31,10 +45,10 @@ CREATE TABLE IF NOT EXISTS match_stats (
     win_place    INTEGER NOT NULL,
     match_date   TEXT NOT NULL,
     fetched_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(discord_id, match_id)
+    UNIQUE(pubg_id, match_id)
 );
 CREATE INDEX IF NOT EXISTS idx_match_stats_player_mode
-    ON match_stats(discord_id, game_mode, season);
+    ON match_stats(pubg_id, game_mode, season);
 
 CREATE TABLE IF NOT EXISTS hangout_time (
     player_a     TEXT NOT NULL,

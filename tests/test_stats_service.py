@@ -11,7 +11,7 @@ async def seeded_db(db):
     for i in range(12):
         await match_repo.insert_match(
             db,
-            discord_id="111",
+            pubg_id="pubg_111",
             match_id=f"match_squad_{i}",
             game_mode="squad-fpp",
             season="season_current",
@@ -25,7 +25,7 @@ async def seeded_db(db):
     for i in range(5):
         await match_repo.insert_match(
             db,
-            discord_id="111",
+            pubg_id="pubg_111",
             match_id=f"match_duo_{i}",
             game_mode="duo-fpp",
             season="season_current",
@@ -39,7 +39,7 @@ async def seeded_db(db):
     for i in range(15):
         await match_repo.insert_match(
             db,
-            discord_id="111",
+            pubg_id="pubg_111",
             match_id=f"match_duo_prev_{i}",
             game_mode="duo-fpp",
             season="season_prev",
@@ -86,17 +86,17 @@ class TestAssignTier:
 class TestGetEffectiveADR:
     async def test_current_season_enough_matches(self, seeded_db):
         adr, tier, count, fallback = await get_effective_adr(
-            seeded_db, "111", "squad-fpp", "season_current", "season_prev"
+            seeded_db, "pubg_111", "squad-fpp", "season_current", "season_prev"
         )
         assert adr is not None
         assert count == 12
         assert fallback is False
-        # damage: 200, 210, 220, ..., 310 → avg = 255
+        # damage: 200, 210, 220, ..., 310 -> avg = 255
         assert 254 < adr < 256
 
     async def test_fallback_to_previous_season(self, seeded_db):
         adr, tier, count, fallback = await get_effective_adr(
-            seeded_db, "111", "duo-fpp", "season_current", "season_prev"
+            seeded_db, "pubg_111", "duo-fpp", "season_current", "season_prev"
         )
         # Current season has only 5 matches (< 10), should fall back
         assert adr == 250.0
@@ -105,7 +105,7 @@ class TestGetEffectiveADR:
 
     async def test_new_player_no_data(self, seeded_db):
         adr, tier, count, fallback = await get_effective_adr(
-            seeded_db, "111", "squad-fpp", "season_nonexistent"
+            seeded_db, "pubg_111", "squad-fpp", "season_nonexistent"
         )
         assert adr is None
         assert tier is None
@@ -113,7 +113,7 @@ class TestGetEffectiveADR:
 
     async def test_no_fallback_season(self, seeded_db):
         adr, tier, count, fallback = await get_effective_adr(
-            seeded_db, "111", "duo-fpp", "season_current"
+            seeded_db, "pubg_111", "duo-fpp", "season_current"
         )
         # Only 5 matches, no previous season given
         assert adr is None

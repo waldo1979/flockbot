@@ -12,6 +12,7 @@ def stats_embed(
     season: str | None,
     is_fallback_squad: bool = False,
     is_fallback_duo: bool = False,
+    is_registered: bool = True,
 ) -> discord.Embed:
     embed = discord.Embed(title=f"Stats: {pubg_name}", color=0x1ABC9C)
 
@@ -22,7 +23,10 @@ def stats_embed(
     embed.add_field(name="Duo FPP", value=duo_val, inline=True)
 
     if season:
-        embed.set_footer(text=f"Season: {season}")
+        footer = f"Season: {season}"
+        if not is_registered:
+            footer += " | Not registered \u2014 /register to join matchmaking!"
+        embed.set_footer(text=footer)
     return embed
 
 

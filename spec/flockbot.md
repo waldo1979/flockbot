@@ -69,7 +69,7 @@ PC (Steam) only. PUBG API shard: `steam`.
 
 The PUBG API only exposes match history for the last **14 days**. To build a complete season record, the bot continuously ingests match data:
 
-- **Background task**: Every **2 hours**, iterate through all registered players and fetch their recent matches.
+- **Background task**: Every **2 hours**, iterate through all registered players and recently looked-up cached players (within 14 days) and fetch their recent matches.
 - Stagger requests at 1 player per rate-limit cycle to stay within the 10 req/min limit.
 - For each player:
   1. `GET /shards/steam/players/{id}` — returns up to ~20 recent match IDs. **(rate-limited: 1 call)**
@@ -232,6 +232,7 @@ A channel category **"PUBG VOICE"** is used as the parent for bot-created tempor
    c. Posts a match announcement in a text channel showing the group members and their tiers.
 6. When a temporary voice channel becomes **empty**, the bot waits **10 minutes** (grace period) before deleting it. If any matched player reconnects during this window, the deletion is cancelled. This handles internet outages and game crashes without losing the channel.
 7. If a player **leaves** the LFG lobby before being matched, they are removed from the pool.
+8. If a player leaves a matched channel, the remaining players can run `/open` to open the channel for replacements (see §5.4).
 
 ### 5.3 Manual Lobbies (Join-to-Create)
 
@@ -245,7 +246,19 @@ For players who want to group up without the matchmaker:
 
 This is intentionally simple — no registration gate, no permission lockdown, no announcements. It's a convenience feature for premade groups.
 
-### 5.4 Matching Algorithm
+### 5.4 Opening a Matched Channel (`/open`)
+
+Matched channels are permission-locked so only the matched players can connect. If a player leaves and the squad needs a replacement, any remaining player can run `/open` to unlock the channel:
+
+1. The invoker must be in a voice channel under the **PUBG VOICE** category (not an LFG lobby or Create Lobby).
+2. The bot removes the `@everyone connect=False` permission override, making the channel joinable by anyone.
+3. The bot sets `user_limit` to the original group size (4 for squad channels, 2 for duo) to prevent overflow.
+4. The bot posts an announcement in a text channel: *"**{channel_name}** has an open spot! Join to fill the squad."*
+5. The command responds ephemerally to the invoker with confirmation.
+
+If the channel is already open (no `@everyone` deny override), the bot responds with *"This channel is already open."*
+
+### 5.5 Matching Algorithm
 
 **Scoring function** for a candidate group G of size N:
 
@@ -253,7 +266,7 @@ This is intentionally simple — no registration gate, no permission lockdown, n
 skill_score(G)  = 1.0 - (max_adr(G) - min_adr(G)) / 400
 social_score(G) = mean(pairwise_compatibility(a, b) for all pairs in G)
 
-r = relaxation_factor(G)   # see §5.7
+r = relaxation_factor(G)   # see §5.8
 effective_skill_weight = 0.6 * (1.0 - r)
 baseline = 0.6 * r
 
@@ -276,7 +289,7 @@ At r=1 (5+ min wait): `0.4*social + 0.6` (skill irrelevant, social still matters
 - For pools of **≤20 players**: evaluate all `itertools.combinations` of the appropriate group size, score each, and greedily select the highest-scoring group, remove those players, repeat.
 - For pools of **>20 players**: bucket players by ADR tier first, form groups within tiers, then attempt cross-tier matching for remainders.
 
-### 5.5 Queue State
+### 5.6 Queue State
 
 Queue state is **in-memory only** — derived from who is currently in the LFG voice channels. There is no persistent queue table.
 
@@ -284,7 +297,7 @@ Pool state is stored on the bot instance (`bot.lfg_pools`) as `dict[int, dict[in
 
 On startup (`on_ready`), the bot scans both LFG voice channels and rebuilds the in-memory pools from any registered players already present. This ensures queue state survives container restarts and upgrades without requiring players to leave and rejoin.
 
-### 5.6 Queue Status Display
+### 5.7 Queue Status Display
 
 The `/queue` command shows an ephemeral status for the invoking player. If the player is not queued, it says so. If queued, it shows a single line with their queue info:
 
@@ -304,7 +317,7 @@ Fields (separated by ` · `):
 - Countdowns account for the player's queue preference (FAST halves the real time to each phase).
 - The response is **ephemeral** to avoid channel spam.
 
-### 5.7 Skill Relaxation
+### 5.8 Skill Relaxation
 
 Skill matching loosens over time so that no player waits more than 5 minutes for a group.
 
@@ -346,6 +359,7 @@ Stored in `players.queue_preference` (persisted in SQLite).
 |---|---|---|---|
 | `/register <pubg_name>` | Link Discord account to PUBG name, set server nickname | Ephemeral: confirmation + initial stats | 60s |
 | `/stats` | Show your own stats (squad-fpp ADR, duo-fpp ADR, tiers, match counts, season) | Public embed | 30s |
+| `/stats <pubg_name>` | Look up any PUBG player's stats (registered or not). Hits API on demand, caches results. Shows registration nudge for non-members. | Public embed | 30s |
 | `/stats lookup <@player>` | Show another registered player's stats | Public embed | 15s |
 | `/stats refresh` | Force-refresh stats from PUBG API | Ephemeral: updated stats | 300s |
 | `/leaderboard` | Server ADR leaderboard (top 10, selectable by mode) | Public embed | 60s |
@@ -365,6 +379,7 @@ Stored in `players.queue_preference` (persisted in SQLite).
 |---|---|---|---|
 | `/queue` | Show your queue status: wait time, players needed, laxative countdown | Ephemeral | 10s |
 | `/queuepref <skill\|fast>` | Set matching preference: skill (tight matches) or fast (quicker groups) | Ephemeral | 10s |
+| `/open` | Open your matched channel for replacements (removes permission lock, announces open spot) | Ephemeral: confirmation | 10s |
 | `/kick <@player>` | (Admin) Remove a player from LFG lobby | Ephemeral: confirmation | — |
 
 ### 6.4 Admin
@@ -424,14 +439,32 @@ Discord-to-PUBG account linkage and cached stats.
 | `adr_season` | TEXT | | Season ID these cached values are from |
 | `queue_preference` | TEXT | DEFAULT 'skill' | Matching preference: 'skill' or 'fast' |
 
-### 7.3 `match_stats`
+### 7.3 `player_cache`
 
-Per-match damage data fetched from PUBG API. Only FPP modes stored.
+Cached stats for unregistered PUBG players looked up via `/stats <pubg_name>`. Entries are refreshed in the background if looked up within 14 days, and cleaned up after 30 days of inactivity.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `pubg_id` | TEXT | PRIMARY KEY | PUBG account ID |
+| `pubg_name` | TEXT | NOT NULL | PUBG in-game name |
+| `last_lookup` | TEXT | NOT NULL, DEFAULT now | Last time someone looked up this player |
+| `last_stats_update` | TEXT | | Last refresh timestamp |
+| `squad_fpp_adr` | REAL | | Cached squad-fpp ADR |
+| `squad_fpp_tier` | TEXT | | Tier label for squad-fpp |
+| `squad_fpp_matches` | INTEGER | DEFAULT 0 | Match count |
+| `duo_fpp_adr` | REAL | | Cached duo-fpp ADR |
+| `duo_fpp_tier` | TEXT | | Tier label for duo-fpp |
+| `duo_fpp_matches` | INTEGER | DEFAULT 0 | Match count |
+| `adr_season` | TEXT | | Season ID these cached values are from |
+
+### 7.4 `match_stats`
+
+Per-match damage data fetched from PUBG API. Only FPP modes stored. Keyed on `pubg_id` so match data is shared between registered and cached players.
 
 | Column | Type | Constraints |
 |---|---|---|
 | `id` | INTEGER | PRIMARY KEY AUTOINCREMENT |
-| `discord_id` | TEXT | NOT NULL, FK → players |
+| `pubg_id` | TEXT | NOT NULL |
 | `match_id` | TEXT | NOT NULL |
 | `game_mode` | TEXT | NOT NULL, CHECK IN ('squad-fpp', 'duo-fpp') |
 | `season` | TEXT | NOT NULL |
@@ -441,9 +474,9 @@ Per-match damage data fetched from PUBG API. Only FPP modes stored.
 | `win_place` | INTEGER | NOT NULL |
 | `match_date` | TEXT | NOT NULL |
 | `fetched_at` | TEXT | NOT NULL, DEFAULT now |
-| | | UNIQUE(discord_id, match_id) |
+| | | UNIQUE(pubg_id, match_id) |
 
-### 7.4 `hangout_time`
+### 7.5 `hangout_time`
 
 Pairwise voice channel hangout time. Accumulated by periodic sampling.
 
@@ -456,7 +489,7 @@ Pairwise voice channel hangout time. Accumulated by periodic sampling.
 | | | UNIQUE(player_a, player_b) | |
 | | | CHECK(player_a < player_b) | Canonical ordering |
 
-### 7.5 `blocks`
+### 7.6 `blocks`
 
 Permanent "Never Again" blocks. No decay.
 
@@ -468,7 +501,7 @@ Permanent "Never Again" blocks. No decay.
 | | | PRIMARY KEY (from_user, to_user) |
 | | | CHECK(from_user != to_user) |
 
-### 7.6 `buddies`
+### 7.7 `buddies`
 
 Best buddy bonds. Requires mutual confirmation.
 
@@ -490,7 +523,8 @@ Best buddy bonds. Requires mutual confirmation.
 |---|---|---|
 | Welcome messages | On startup | Purge bot messages in #rules, re-post from `docs/discord-welcome.md` (3 messages) |
 | Hangout time accumulation | Every 1 minute | Sample voice channels, accumulate pairwise hangout minutes for registered players |
-| Stats refresh | Every 2 hours | Fetch recent matches for all registered players, store FPP matches, recalculate per-mode ADR |
+| Stats refresh | Every 2 hours | Fetch recent matches for all registered players and recently looked-up cached players (14-day window), store FPP matches, recalculate per-mode ADR |
+| Cache cleanup | Every 2 hours | Delete `player_cache` entries not looked up in 30 days |
 | Season check | Daily | Fetch current season ID from PUBG API, detect season transitions |
 | Periodic match | Every 30 seconds | Re-run matchmaker on LFG pools so long-waiting players benefit from skill relaxation |
 
@@ -572,6 +606,8 @@ Best buddy bonds. Requires mutual confirmation.
 | `HANGOUT_HALF_LIFE_WEEKS` | 4.0 | `services/feedback_service.py` | Half-life for hangout time decay |
 | `RELAXATION_START_SECS` | 120 | `services/matchmaker.py` | Seconds before skill relaxation begins |
 | `RELAXATION_FULL_SECS` | 300 | `services/matchmaker.py` | Seconds at which skill weight reaches zero |
+| `CACHE_ACTIVE_DAYS` | 14 | `database/cache_repo.py` | Days a cached player stays in the background refresh cycle |
+| `CACHE_STALE_DAYS` | 30 | `database/cache_repo.py` | Days before a cached player entry is deleted |
 
 ---
 
@@ -614,6 +650,7 @@ flockbot/
     schema.sql                    # DDL for all tables
     migrations.py                 # Schema version tracking
     player_repo.py                # Player CRUD
+    cache_repo.py                 # Cached (unregistered) player stats CRUD
     match_repo.py                 # Match stats CRUD
     feedback_repo.py              # Feedback, blocks, buddies CRUD
   utils/
@@ -625,6 +662,7 @@ flockbot/
   tests/
     __init__.py
     conftest.py                   # In-memory SQLite fixtures, mock PUBG API
+    test_cache_repo.py            # Cached player CRUD, stale cleanup
     test_stats_service.py         # ADR calc, tiers, season fallback, mode filtering
     test_feedback_service.py      # Hangout compatibility, blocks, buddy confirmation
     test_matchmaker.py            # Grouping, veto, buddy bonding, edge cases
