@@ -279,7 +279,11 @@ class LFGHandler(commands.Cog):
     ) -> None:
         name = generate_channel_name()
 
-        # Create temp voice channel (no overwrites first to diagnose permissions)
+        # Create temp voice channel, then set permission overrides separately.
+        # Setting overwrites at creation time requires Manage Roles on the
+        # category, which may not be granted.  Editing after creation only
+        # requires Manage Roles on the channel itself (inherited from the
+        # bot's Manage Channels permission).
         try:
             temp_channel = await lfg_channel.guild.create_voice_channel(
                 name=name,
@@ -288,16 +292,23 @@ class LFGHandler(commands.Cog):
             )
         except discord.Forbidden as e:
             log.error("Cannot create voice channel %s: %s", name, e)
-            # Log the bot's permissions in the category for debugging
-            if category:
-                perms = category.permissions_for(lfg_channel.guild.me)
-                log.error(
-                    "Bot perms in category: manage_channels=%s, manage_roles=%s, "
-                    "move_members=%s, connect=%s, view_channel=%s",
-                    perms.manage_channels, perms.manage_roles,
-                    perms.move_members, perms.connect, perms.view_channel,
-                )
             return
+
+        # Apply permission overrides: deny @everyone, allow matched players
+        try:
+            await temp_channel.set_permissions(
+                lfg_channel.guild.default_role, connect=False,
+            )
+            await temp_channel.set_permissions(
+                lfg_channel.guild.me,
+                connect=True, move_members=True, manage_channels=True,
+            )
+            for p in group:
+                member = lfg_channel.guild.get_member(int(p.discord_id))
+                if member:
+                    await temp_channel.set_permissions(member, connect=True)
+        except discord.Forbidden:
+            log.warning("Could not set permissions on %s, channel remains open", name)
 
         # Move players and remove from pool
         pool = self.bot.lfg_pools.get(lfg_channel.id, {})
