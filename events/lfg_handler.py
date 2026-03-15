@@ -53,6 +53,22 @@ class LFGHandler(commands.Cog):
                 if pool:
                     log.info("Restored %d total players to %s pool", len(pool), channel_name)
 
+        # Clean up empty temp channels left over from before the restart
+        for guild in self.bot.guilds:
+            category = self._find_category(guild)
+            if not category:
+                continue
+            lfg_names = {LFG_SQUAD_CHANNEL, LFG_DUO_CHANNEL}
+            for vc in list(category.voice_channels):
+                if vc.name in lfg_names:
+                    continue  # Never delete the lobby channels
+                if len(vc.members) == 0:
+                    try:
+                        await vc.delete(reason="Startup cleanup: empty temp channel")
+                        log.info("Startup cleanup: deleted empty channel %s", vc.name)
+                    except (discord.Forbidden, discord.NotFound):
+                        pass
+
         if not self.periodic_match.is_running():
             self.periodic_match.start()
 
