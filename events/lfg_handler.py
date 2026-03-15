@@ -279,28 +279,24 @@ class LFGHandler(commands.Cog):
     ) -> None:
         name = generate_channel_name()
 
-        # Build permission overrides: deny @everyone, allow matched players
-        overwrites = {
-            lfg_channel.guild.default_role: discord.PermissionOverwrite(connect=False),
-            lfg_channel.guild.me: discord.PermissionOverwrite(
-                connect=True, move_members=True, manage_channels=True,
-            ),
-        }
-        for p in group:
-            member = lfg_channel.guild.get_member(int(p.discord_id))
-            if member:
-                overwrites[member] = discord.PermissionOverwrite(connect=True)
-
-        # Create temp voice channel
+        # Create temp voice channel (no overwrites first to diagnose permissions)
         try:
             temp_channel = await lfg_channel.guild.create_voice_channel(
                 name=name,
                 category=category,
-                overwrites=overwrites,
                 reason="LFG group formed",
             )
         except discord.Forbidden as e:
             log.error("Cannot create voice channel %s: %s", name, e)
+            # Log the bot's permissions in the category for debugging
+            if category:
+                perms = category.permissions_for(lfg_channel.guild.me)
+                log.error(
+                    "Bot perms in category: manage_channels=%s, manage_roles=%s, "
+                    "move_members=%s, connect=%s, view_channel=%s",
+                    perms.manage_channels, perms.manage_roles,
+                    perms.move_members, perms.connect, perms.view_channel,
+                )
             return
 
         # Move players and remove from pool
