@@ -157,11 +157,11 @@ class Stats(commands.Cog):
                 await interaction.response.send_message(embed=embed)
                 return
 
-            # 2. Check player_cache for fresh data
+            # 2. Check player_cache (case-insensitive)
             cached = await cache_repo.get_cached_player_by_name(
                 self.bot.db, pubg_name
             )
-            if cached and cached.get("squad_fpp_adr") is not None:
+            if cached:
                 await cache_repo.touch_lookup(self.bot.db, cached["pubg_id"])
                 season = await self._ensure_season()
                 embed = self._build_stats_embed(
@@ -177,7 +177,8 @@ class Stats(commands.Cog):
             player_info = await self.api.get_player_by_name(pubg_name)
             if not player_info:
                 await interaction.followup.send(
-                    f"Could not find PUBG player **{pubg_name}** on Steam."
+                    f"Could not find PUBG player **{pubg_name}** on Steam. "
+                    "PUBG names are case-sensitive — check the exact capitalization."
                 )
                 return
 
