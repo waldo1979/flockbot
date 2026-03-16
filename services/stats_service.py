@@ -75,6 +75,7 @@ async def refresh_player_stats(
     pubg_id: str,
     current_season: str,
     previous_season: str | None = None,
+    priority: str = "high",
 ) -> ComputedStats | None:
     """Fetch recent matches from PUBG API, store FPP matches, compute ADR.
 
@@ -82,7 +83,7 @@ async def refresh_player_stats(
     Returns None if match fetch fails.
     """
     # Get recent match IDs
-    match_ids = await api.get_player_match_ids(pubg_id)
+    match_ids = await api.get_player_match_ids(pubg_id, priority=priority)
     if not match_ids:
         log.debug("No matches found for %s", pubg_id)
         # Still compute stats from existing data

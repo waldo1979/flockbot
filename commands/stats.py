@@ -50,8 +50,8 @@ class Stats(commands.Cog):
         player_info = await self.api.get_player_by_name(pubg_name)
         if not player_info:
             await interaction.followup.send(
-                f"Could not find PUBG player **{pubg_name}** on Steam. "
-                "Check the spelling and try again.",
+                f"Could not find PUBG player **{pubg_name}**. "
+                "PUBG names are case-sensitive — check the exact capitalization.",
                 ephemeral=True,
             )
             return
@@ -177,7 +177,7 @@ class Stats(commands.Cog):
             player_info = await self.api.get_player_by_name(pubg_name)
             if not player_info:
                 await interaction.followup.send(
-                    f"Could not find PUBG player **{pubg_name}** on Steam. "
+                    f"Could not find PUBG player **{pubg_name}**. "
                     "PUBG names are case-sensitive — check the exact capitalization."
                 )
                 return
@@ -202,7 +202,7 @@ class Stats(commands.Cog):
             if season:
                 computed = await refresh_player_stats(
                     self.bot.db, self.api, player_info.account_id,
-                    season, self.previous_season,
+                    season, self.previous_season, priority="medium",
                 )
                 if computed:
                     # 8. Store in cache
@@ -293,7 +293,7 @@ class Stats(commands.Cog):
         if season and player["pubg_id"]:
             computed = await refresh_player_stats(
                 self.bot.db, self.api, player["pubg_id"],
-                season, self.previous_season,
+                season, self.previous_season, priority="medium",
             )
             if computed:
                 await player_repo.update_cached_stats(

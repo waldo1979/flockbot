@@ -63,6 +63,7 @@ class BackgroundTasks(commands.Cog):
                     pubg_id,
                     self.current_season,
                     self.previous_season,
+                    priority="low",
                 )
                 if computed:
                     await player_repo.update_cached_stats(

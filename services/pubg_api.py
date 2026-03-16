@@ -56,10 +56,10 @@ class PUBGApiClient:
             await self._session.close()
 
     async def _request(
-        self, url: str, rate_limited: bool = True
+        self, url: str, rate_limited: bool = True, priority: str = "high"
     ) -> dict | None:
         if rate_limited:
-            await self._rate_limiter.acquire()
+            await self._rate_limiter.acquire(priority=priority)
 
         session = await self._get_session()
         retries = 0
@@ -108,9 +108,11 @@ class PUBGApiClient:
         self._player_id_cache[name.lower()] = info.account_id
         return info
 
-    async def get_player_match_ids(self, player_id: str) -> list[str]:
+    async def get_player_match_ids(
+        self, player_id: str, priority: str = "high"
+    ) -> list[str]:
         url = f"{BASE_URL}/players/{player_id}"
-        data = await self._request(url, rate_limited=True)
+        data = await self._request(url, rate_limited=True, priority=priority)
         if not data or not data.get("data"):
             return []
 
