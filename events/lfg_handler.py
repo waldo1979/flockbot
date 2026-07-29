@@ -18,7 +18,6 @@ LFG_SQUAD_CHANNEL = "LFG Squad"
 LFG_DUO_CHANNEL = "LFG Duo"
 CREATE_LOBBY_CHANNEL = "Create Lobby"
 SQUADS_CATEGORY = "PUBG VOICE"
-LOBBY_USER_LIMIT = 4
 TEMP_CHANNEL_GRACE_MINUTES = 10
 
 # Track pending deletions so we can cancel if someone rejoins: channel_id -> asyncio.Task
@@ -178,7 +177,6 @@ class LFGHandler(commands.Cog):
             temp_channel = await member.guild.create_voice_channel(
                 name=name,
                 category=category,
-                user_limit=LOBBY_USER_LIMIT,
                 reason=f"Manual lobby created by {member.display_name}",
             )
         except discord.Forbidden as e:

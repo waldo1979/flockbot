@@ -239,7 +239,7 @@ A channel category **"PUBG VOICE"** is used as the parent for bot-created tempor
 For players who want to group up without the matchmaker:
 
 1. A player joins the **"Create Lobby"** voice channel.
-2. The bot creates a new temporary voice channel with a random name under PUBG VOICE, with a **4-person user limit** and **no permission restrictions** (anyone can join).
+2. The bot creates a new temporary voice channel with a random name under PUBG VOICE, with **no user limit** and **no permission restrictions** (anyone can join).
 3. The bot moves the player into the new channel.
 4. Friends join the channel directly — no registration, slash commands, or matchmaker involvement required.
 5. The same cleanup logic applies: when the channel is empty for 10 minutes, the bot deletes it.
@@ -597,7 +597,6 @@ Best buddy bonds. Requires mutual confirmation.
 |---|---|---|---|
 | `SKILL_WEIGHT` | 0.6 | `services/matchmaker.py` | Weight of skill similarity in matching |
 | `SOCIAL_WEIGHT` | 0.4 | `services/matchmaker.py` | Weight of social compatibility in matching |
-| `LOBBY_USER_LIMIT` | 4 | `events/lfg_handler.py` | Max players in a manually created lobby channel |
 | `BUDDY_WAIT_MINUTES` | 5 | `events/lfg_handler.py` | *(Deferred)* How long to hold a slot for an absent buddy |
 | `STATS_REFRESH_HOURS` | 2 | `events/on_ready.py` | Interval between background stats refreshes |
 | `MIN_MATCHES_FOR_ADR` | 10 | `services/stats_service.py` | Minimum matches before showing ADR (else fallback) |
